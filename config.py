@@ -102,7 +102,9 @@ def _load_topics() -> dict[str, int]:
 class Settings:
     def __init__(self) -> None:
         self.bot_token = os.getenv("BOT_TOKEN", "").strip()
-        self.admin_ids = _parse_admin_ids(os.getenv("ADMIN_IDS"))
+        self.tova_admin_ids = _parse_admin_ids(
+            os.getenv("TOVA_ADMIN_ID") or os.getenv("ZARIF_TG_ID")
+        )
         self.admin_usernames = _parse_usernames(os.getenv("ADMIN_USERNAMES"))
         self.league_admins = {
             "cn": _parse_usernames_display(os.getenv("ADMINS_CN")),
@@ -138,7 +140,13 @@ class Settings:
     def table_template_path(self) -> Path:
         return self.assets_dir / "table_template.jpg"
 
-    def is_admin(self, user_id: int, username: str | None = None) -> bool:
+    def is_tova_admin(self, user_id: int, username: str | None = None) -> bool:
+        if self.tova_admin_ids and user_id in self.tova_admin_ids:
+            return True
+        tova_names = {name.lower() for name in self.league_admins.get("tova", [])}
+        if username and username.lstrip("@").lower() in tova_names:
+            return True
+        return False
         if user_id in self.admin_ids:
             return True
         if username and username.lstrip("@").lower() in self.admin_usernames:

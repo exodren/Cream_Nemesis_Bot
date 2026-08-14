@@ -34,6 +34,19 @@ async def get_user_by_username(session: AsyncSession, username: str) -> User | N
     return result.scalar_one_or_none()
 
 
+async def resolve_tova_reviewer_ids(session: AsyncSession) -> list[int]:
+    """Numeric Telegram IDs that receive TOVA approve cards (Zarif / TOVA_ADMIN_ID)."""
+    from config import get_settings
+
+    settings = get_settings()
+    ids: set[int] = set(settings.tova_admin_ids)
+    for uname in settings.league_admins.get("tova", []):
+        user = await get_user_by_username(session, uname)
+        if user:
+            ids.add(user.tg_id)
+    return sorted(ids)
+
+
 async def get_user_by_nickname(session: AsyncSession, nickname: str) -> User | None:
     result = await session.execute(
         select(User).where(func.lower(User.nickname) == nickname.lower())

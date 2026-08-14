@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command, StateFilter
@@ -17,6 +19,7 @@ from services import users as users_service
 from services.matches import parse_result_command, parse_scorers_line
 
 router = Router(name="results")
+logger = logging.getLogger(__name__)
 
 
 def _confirm_kb(match_id: int) -> object:
@@ -360,14 +363,16 @@ async def cb_confirm_match(callback: CallbackQuery, session: AsyncSession) -> No
         except Exception:
             pass
 
-    settings = get_settings()
-    admin_text = "Проверка результата TOVA:\n\n" + card
-    admin_ids = set(settings.admin_ids)
-    for uname in settings.admin_usernames:
-        admin_user = await users_service.get_user_by_username(session, uname)
-        if admin_user:
-            admin_ids.add(admin_user.tg_id)
-    for admin_id in admin_ids:
+    admin_text = (
+        "<b>Новый результат TOVA на проверку!</b>\n\n" + card
+    )
+    reviewer_ids = await users_service.resolve_tova_reviewer_ids(session)
+    if not reviewer_ids:
+        logger.warning(
+            "TOVA pending_admin match=%s: no TOVA_ADMIN_ID / ADMINS_TOVA recipient",
+            match.id,
+        )
+    for admin_id in reviewer_ids:
         try:
             if match.screenshot_file_id:
                 await callback.bot.send_photo(
@@ -383,14 +388,17 @@ async def cb_confirm_match(callback: CallbackQuery, session: AsyncSession) -> No
                     reply_markup=_admin_kb(match.id),
                 )
         except Exception:
-            pass
+            logger.exception("Failed to send TOVA card to %s", admin_id)
 
 
 @router.callback_query(F.data.startswith("tova:admin:"))
 async def cb_admin_match(callback: CallbackQuery, session: AsyncSession) -> None:
     settings = get_settings()
-    if not settings.is_admin(callback.from_user.id, callback.from_user.username):
-        await callback.answer("Недостаточно прав.", show_alert=True)
+    if not settings.is_tova_admin(callback.from_user.id, callback.from_user.username):
+        await callback.answer(
+            "Только администратор TOVA может подтверждать результаты.",
+            show_alert=True,
+        )
         return
 
     await callback.answer()
