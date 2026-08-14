@@ -102,6 +102,7 @@ def _load_topics() -> dict[str, int]:
 class Settings:
     def __init__(self) -> None:
         self.bot_token = os.getenv("BOT_TOKEN", "").strip()
+        self.admin_ids = _parse_admin_ids(os.getenv("ADMIN_IDS"))
         self.tova_admin_ids = _parse_admin_ids(
             os.getenv("TOVA_ADMIN_ID") or os.getenv("ZARIF_TG_ID")
         )
