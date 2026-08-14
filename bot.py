@@ -20,8 +20,10 @@ from handlers.results import router as results_router
 from handlers.start import router as start_router
 from handlers.tova.registration import router as registration_router
 from handlers.tova.stats import router as stats_router
+from handlers.welcome import router as welcome_router
 from logging_setup import setup_logging
 from middlewares.db import DbSessionMiddleware
+from services.bot_commands import set_bot_commands
 
 
 async def _log_db_mode() -> None:
@@ -46,6 +48,7 @@ async def main() -> None:
     dp.update.middleware(DbSessionMiddleware())
 
     # Order matters: specific TOVA routers before generic menu catch-alls
+    dp.include_router(welcome_router)
     dp.include_router(start_router)
     dp.include_router(registration_router)
     dp.include_router(matchmaking_router)
@@ -62,8 +65,9 @@ async def main() -> None:
         settings.admin_ids,
         log_path,
     )
+    await set_bot_commands(bot)
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
 if __name__ == "__main__":
