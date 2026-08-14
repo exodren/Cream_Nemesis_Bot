@@ -148,6 +148,8 @@ class Settings:
         if username and username.lstrip("@").lower() in tova_names:
             return True
         return False
+
+    def is_admin(self, user_id: int, username: str | None = None) -> bool:
         if user_id in self.admin_ids:
             return True
         if username and username.lstrip("@").lower() in self.admin_usernames:
