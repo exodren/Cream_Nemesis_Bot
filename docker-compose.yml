@@ -1,0 +1,18 @@
+services:
+  bot:
+    build: .
+    container_name: cream_nemesis_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Tashkent
+      DATABASE_URL: sqlite+aiosqlite:////app/data/bot.db
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

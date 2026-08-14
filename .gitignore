@@ -1,0 +1,19 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+data/*
+!data/.gitkeep
+data - */
+*.db
+*.db-shm
+*.db-wal
+.idea/
+.vscode/
+*.log
+logs/
+*.log.*
+dist/
+build/
+*.egg-info/
