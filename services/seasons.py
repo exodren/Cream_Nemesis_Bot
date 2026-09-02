@@ -141,7 +141,7 @@ async def deactivate_participant_by_tg_id(
 async def end_current_season(session: AsyncSession) -> tuple[bool, str]:
     season = await get_current_season_row(session)
     if season is None:
-        return False, "Текущий сезон не найден в БД."
+        return False, "Текущий сезон не найден."
 
     if season.is_archived:
         return False, f"Сезон #{season.number} уже завершён."

@@ -41,7 +41,7 @@ async def notify_tova_reviewers(
     card = matches_service.format_match_card(match, p1, p2, goals)
     if reminder:
         header = (
-            "⏳ <b>Матч TOVA ожидает проверки</b>\n"
+            "<b>Матч TOVA ожидает проверки</b>\n"
             "(напоминание — бот перезапущен или сменился модератор)\n\n"
         )
     else:

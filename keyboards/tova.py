@@ -32,11 +32,11 @@ def tova_confirm_kb(match_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Подтвердить",
+                    text="Подтвердить",
                     callback_data=f"tova:confirm:{match_id}:1",
                 ),
                 InlineKeyboardButton(
-                    text="❌ Отклонить",
+                    text="Отклонить",
                     callback_data=f"tova:confirm:{match_id}:0",
                 ),
             ]
@@ -49,11 +49,11 @@ def tova_admin_review_kb(match_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Засчитать",
+                    text="Засчитать",
                     callback_data=f"tova:admin:{match_id}:1",
                 ),
                 InlineKeyboardButton(
-                    text="❌ Отклонить",
+                    text="Отклонить",
                     callback_data=f"tova:admin:{match_id}:0",
                 ),
             ]

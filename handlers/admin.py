@@ -203,7 +203,7 @@ async def cmd_ban(message: Message, session: AsyncSession) -> None:
         await message.answer(f"{mention} забанен.")
     else:
         await message.answer(
-            f"Пользователь помечен как banned в БД, но кик не выполнен.\n{api_err}"
+            f"Пользователь отмечен как забаненный, но кик в чате не выполнен.\n{api_err}"
         )
 
 
@@ -227,5 +227,5 @@ async def cmd_unban(message: Message, session: AsyncSession) -> None:
         await message.answer(f"{mention} разбанен.")
     else:
         await message.answer(
-            f"Флаг бана снят в БД, но unban в чате не выполнен.\n{api_err}"
+            f"Бан снят в боте, но разбан в чате не выполнен.\n{api_err}"
         )

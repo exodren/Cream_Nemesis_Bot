@@ -34,7 +34,7 @@ def _leave_alert_text(
     full_name = f"{first_name or ''} {last_name or ''}".strip() or "—"
     username_display = f"@{username}" if username else "—"
     return (
-        "⚠️ <b>Участник покинул чат Лиги!</b>\n"
+        "<b>Участник покинул чат лиги</b>\n"
         f"• <b>Имя:</b> {html.escape(full_name)}\n"
         f"• <b>Юзернейм:</b> {html.escape(username_display)}\n"
         f"• <b>ID:</b> <code>{user_id}</code>\n"
@@ -47,7 +47,7 @@ def _leave_alert_kb(tg_user_id: int, season: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="❌ Снять с турнира (Удалить из БД)",
+                    text="Снять с турнира",
                     callback_data=f"leave:kick:{tg_user_id}:{season}",
                 )
             ]
@@ -130,15 +130,14 @@ async def cb_kick_from_season(callback: CallbackQuery, session: AsyncSession) ->
         season=season,
     )
     if status == "not_found":
-        await callback.answer("Пользователь не найден в БД.", show_alert=True)
+        await callback.answer("Пользователь не найден.", show_alert=True)
         return
 
     if status == "already_inactive":
         await callback.answer("Игрок уже исключён из сезона", show_alert=True)
         if callback.message:
             done_text = (
-                f"ℹ️ Игрок {html.escape(username)} уже вычеркнут "
-                f"из базы сезона {season}"
+                f"Игрок {html.escape(username)} уже исключён из сезона {season}"
             )
             try:
                 await callback.message.edit_text(done_text)
@@ -153,9 +152,7 @@ async def cb_kick_from_season(callback: CallbackQuery, session: AsyncSession) ->
     await callback.answer("Игрок исключен из сезона", show_alert=True)
 
     if callback.message:
-        done_text = (
-            f"✅ Игрок {html.escape(username)} вычеркнут из базы сезона {season}"
-        )
+        done_text = f"Игрок {html.escape(username)} исключён из сезона {season}"
         try:
             await callback.message.edit_text(done_text)
         except Exception:
