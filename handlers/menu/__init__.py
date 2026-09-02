@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from handlers.callback_ui import edit_screen
 from keyboards.admins import admins_league_kb, admins_league_text, admins_menu_kb, admins_overview_text
 from keyboards.coach import coach_kb
 from keyboards.hall import hall_menu_kb
@@ -41,16 +41,6 @@ from texts import (
 router = Router(name="menu")
 
 
-async def _edit(callback: CallbackQuery, text: str, reply_markup) -> None:
-    await callback.answer()
-    if not callback.message:
-        return
-    try:
-        await callback.message.edit_text(text, reply_markup=reply_markup)
-    except TelegramBadRequest:
-        await callback.message.answer(text, reply_markup=reply_markup)
-
-
 @router.callback_query(F.data == "menu:topic_missing")
 async def menu_topic_missing(callback: CallbackQuery) -> None:
     await callback.answer(
@@ -65,36 +55,36 @@ async def menu_main(callback: CallbackQuery) -> None:
     mention = f"@{user.username}" if user.username else user.full_name
     from texts import START
 
-    await _edit(callback, START.format(mention=mention), main_menu_kb())
+    await edit_screen(callback, START.format(mention=mention), main_menu_kb())
 
 
 @router.callback_query(F.data == "menu:regulation")
 async def menu_regulation(callback: CallbackQuery) -> None:
     from keyboards.main import back_only_kb
 
-    await _edit(callback, REGULATION, back_only_kb("menu:main"))
+    await edit_screen(callback, REGULATION, back_only_kb("menu:main"))
 
 
 @router.callback_query(F.data == "menu:rules")
 async def menu_rules(callback: CallbackQuery) -> None:
     from keyboards.main import back_only_kb
 
-    await _edit(callback, RULES_CN, back_only_kb("menu:main"))
+    await edit_screen(callback, RULES_CN, back_only_kb("menu:main"))
 
 
 @router.callback_query(F.data == "menu:lpl")
 async def menu_lpl(callback: CallbackQuery) -> None:
-    await _edit(callback, LPL_MENU, lpl_menu_kb())
+    await edit_screen(callback, LPL_MENU, lpl_menu_kb())
 
 
 @router.callback_query(F.data == "menu:lpl:rules")
 async def menu_lpl_rules(callback: CallbackQuery) -> None:
-    await _edit(callback, LPL_RULES, lpl_rules_kb())
+    await edit_screen(callback, LPL_RULES, lpl_rules_kb())
 
 
 @router.callback_query(F.data == "menu:coach")
 async def menu_coach(callback: CallbackQuery) -> None:
-    await _edit(
+    await edit_screen(
         callback,
         "Режим Тренера — переход в тему чата.\n"
         "<i>Ссылка работает только для участников закрытого чата.</i>",
@@ -104,75 +94,75 @@ async def menu_coach(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "menu:ri")
 async def menu_ri(callback: CallbackQuery) -> None:
-    await _edit(callback, RI_INTRO, ri_menu_kb())
+    await edit_screen(callback, RI_INTRO, ri_menu_kb())
 
 
 @router.callback_query(F.data == "menu:ri:awards")
 async def menu_ri_awards(callback: CallbackQuery) -> None:
-    await _edit(callback, RI_AWARDS_MENU, ri_awards_kb())
+    await edit_screen(callback, RI_AWARDS_MENU, ri_awards_kb())
 
 
 @router.callback_query(F.data == "menu:ri:tables")
 async def menu_ri_tables(callback: CallbackQuery) -> None:
-    await _edit(callback, RI_TABLES_MENU, ri_tables_kb())
+    await edit_screen(callback, RI_TABLES_MENU, ri_tables_kb())
 
 
 @router.callback_query(F.data == "menu:ri:tables:ucl")
 async def menu_ri_ucl(callback: CallbackQuery) -> None:
-    await _edit(callback, "ЛЧ — выберите раздел:", ri_ucl_kb())
+    await edit_screen(callback, "ЛЧ — выберите раздел:", ri_ucl_kb())
 
 
 @router.callback_query(F.data == "menu:ri:tables:uel")
 async def menu_ri_uel(callback: CallbackQuery) -> None:
-    await _edit(callback, "ЛЕ — выберите раздел:", ri_uel_kb())
+    await edit_screen(callback, "ЛЕ — выберите раздел:", ri_uel_kb())
 
 
 @router.callback_query(F.data == "menu:ri:tables:uecl")
 async def menu_ri_uecl(callback: CallbackQuery) -> None:
-    await _edit(callback, "ЛК — выберите раздел:", ri_uecl_kb())
+    await edit_screen(callback, "ЛК — выберите раздел:", ri_uecl_kb())
 
 
 @router.callback_query(F.data == "menu:ri:tables:leagues")
 async def menu_ri_leagues(callback: CallbackQuery) -> None:
-    await _edit(callback, "Чемпионаты — выберите раздел:", ri_leagues_kb())
+    await edit_screen(callback, "Чемпионаты — выберите раздел:", ri_leagues_kb())
 
 
 @router.callback_query(F.data == "menu:ri:tables:cups")
 async def menu_ri_cups(callback: CallbackQuery) -> None:
-    await _edit(callback, "Кубки — выберите раздел:", ri_cups_kb())
+    await edit_screen(callback, "Кубки — выберите раздел:", ri_cups_kb())
 
 
 @router.callback_query(F.data == "menu:ri:tables:sc")
 async def menu_ri_sc(callback: CallbackQuery) -> None:
-    await _edit(callback, "Суперкубки — выберите раздел:", ri_super_cups_kb())
+    await edit_screen(callback, "Суперкубки — выберите раздел:", ri_super_cups_kb())
 
 
 @router.callback_query(F.data == "menu:vsa")
 async def menu_vsa(callback: CallbackQuery) -> None:
     from keyboards.main import back_only_kb
 
-    await _edit(callback, VSA_INTRO, back_only_kb("menu:main"))
+    await edit_screen(callback, VSA_INTRO, back_only_kb("menu:main"))
 
 
 @router.callback_query(F.data == "menu:hall")
 async def menu_hall(callback: CallbackQuery) -> None:
-    await _edit(callback, HALL_MENU, hall_menu_kb())
+    await edit_screen(callback, HALL_MENU, hall_menu_kb())
 
 
 @router.callback_query(F.data == "menu:admins")
 async def menu_admins(callback: CallbackQuery) -> None:
-    await _edit(callback, admins_overview_text(), admins_menu_kb())
+    await edit_screen(callback, admins_overview_text(), admins_menu_kb())
 
 
 @router.callback_query(F.data.startswith("menu:admins:"))
 async def menu_admins_league(callback: CallbackQuery) -> None:
     league = (callback.data or "").rsplit(":", 1)[-1]
-    await _edit(callback, admins_league_text(league), admins_league_kb(league))
+    await edit_screen(callback, admins_league_text(league), admins_league_kb(league))
 
 
 @router.callback_query(F.data == "menu:tova")
 async def menu_tova(callback: CallbackQuery) -> None:
-    await _edit(callback, TOVA_MENU, tova_menu_kb())
+    await edit_screen(callback, TOVA_MENU, tova_menu_kb())
 
 
 @router.callback_query(F.data == "menu:tova:reg")
@@ -189,18 +179,18 @@ async def menu_tova_reg(callback: CallbackQuery, session: AsyncSession) -> None:
         if user.nickname
         else "\n\nНикнейм ещё не задан."
     )
-    await _edit(callback, TOVA_REG_MENU + nick_line, tova_reg_kb())
+    await edit_screen(callback, TOVA_REG_MENU + nick_line, tova_reg_kb())
 
 
 @router.callback_query(F.data == "menu:tova:rules")
 async def menu_tova_rules(callback: CallbackQuery) -> None:
     from keyboards.main import back_only_kb
 
-    await _edit(callback, TOVA_RULES, back_only_kb("menu:tova"))
+    await edit_screen(callback, TOVA_RULES, back_only_kb("menu:tova"))
 
 
 @router.callback_query(F.data == "menu:tova:howto")
 async def menu_tova_howto(callback: CallbackQuery) -> None:
     from keyboards.main import back_only_kb
 
-    await _edit(callback, TOVA_HOW_TO, back_only_kb("menu:tova"))
+    await edit_screen(callback, TOVA_HOW_TO, back_only_kb("menu:tova"))

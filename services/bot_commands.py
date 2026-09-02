@@ -28,6 +28,7 @@ ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="warn", description="Выдать предупреждение"),
     BotCommand(command="mute", description="Замутить пользователя"),
     BotCommand(command="ban", description="Забанить пользователя"),
+    BotCommand(command="season_manage", description="Управление сезонами TOVA"),
 ]
 
 

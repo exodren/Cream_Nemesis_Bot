@@ -2,6 +2,8 @@
 
 Прочитал ТЗ и шаблон `лист_таблицы.jpg`. Ниже план бота под ваш стек.
 
+> **Актуальные дополнения к TOVA** (сезоны в БД, архив, выходы из чата, редактирование меню в ЛС): [`NEW_FEATURES.md`](NEW_FEATURES.md).
+
 **Важно:** в ТЗ засвечен токен BotFather. Перед запуском отзовите его в [@BotFather](https://t.me/BotFather) → `/revoke` и положите новый только в `.env` (в репозиторий не коммитить).
 
 ---
@@ -59,10 +61,12 @@ game_bot/
 | **Matches** | `player1_id`, `player2_id`, `score1`, `score2`, `status` (`pending_confirm` / `pending_admin` / `confirmed` / `rejected`), `screenshot_file_id`, `season`, `created_at` |
 | **Goals** | `match_id`, `user_id`, `player_name` (футболист), `goals_count` |
 | **Warnings** | `user_id`, `admin_id`, `reason`, `active`, `created_at` (счётчик = `COUNT` активных) |
+| **Seasons** | `number`, `is_current`, `is_archived`, `started_at`, `ended_at` |
+| **SeasonParticipant** | `user_id`, `season`, `is_active`, `joined_at`, `deactivated_at` |
 
 Дополнительно (не в ТЗ, но нужно для `/go_tova`):
 - **MatchQueue** или поле `Users.in_queue` / in-memory очередь с TTL — кто ждёт соперника.
-- **Seasons** или константа `CURRENT_SEASON` в `config` — чтобы статистика была сезонной.
+- Номер текущего сезона: таблица `seasons` + bootstrap из `CURRENT_SEASON` в `.env`.
 
 Очки TOVA: победа **3**, ничья **1**, поражение **0**. Голы — формат `забитые:пропущенные`, не KD.
 

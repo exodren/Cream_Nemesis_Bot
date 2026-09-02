@@ -57,12 +57,17 @@ def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:  # type: i
 
 async def init_db() -> None:
     from db import models  # noqa: F401 — register models
+    from services.seasons import bootstrap_seasons
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # Explicit WAL ensure after create (in addition to connect hook)
         await conn.execute(text("PRAGMA journal_mode=WAL;"))
         await conn.execute(text("PRAGMA busy_timeout=5000;"))
+
+    async with async_session() as session:
+        await bootstrap_seasons(session)
+        await session.commit()
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

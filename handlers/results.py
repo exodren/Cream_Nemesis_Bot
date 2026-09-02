@@ -6,38 +6,21 @@ from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from handlers.tova.private import bot_deep_link, ensure_private, private_redirect_kb
 from handlers.tova.states import ResultFSM
+from keyboards.tova import tova_confirm_kb
 from services import matches as matches_service
 from services import rate_limit
+from services import tova_reviews as tova_reviews_service
 from services import users as users_service
 from services.matches import parse_result_command, parse_scorers_line
 
 router = Router(name="results")
 logger = logging.getLogger(__name__)
-
-
-def _confirm_kb(match_id: int) -> object:
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"tova:confirm:{match_id}:1"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"tova:confirm:{match_id}:0"),
-    )
-    return builder.as_markup()
-
-
-def _admin_kb(match_id: int) -> object:
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="✅ Засчитать", callback_data=f"tova:admin:{match_id}:1"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"tova:admin:{match_id}:0"),
-    )
-    return builder.as_markup()
 
 
 @router.message(Command("cancel"), StateFilter(ResultFSM), F.chat.type == ChatType.PRIVATE)
@@ -142,13 +125,25 @@ async def cmd_result_tova(message: Message, state: FSMContext, session: AsyncSes
                 + f"У вас уже есть незакрытый матч #{open_match.id}.\n"
                 "Подтвердите / отклоните кнопками ниже "
                 "или командой /cancel_match.",
-                reply_markup=_confirm_kb(open_match.id),
+                reply_markup=tova_confirm_kb(open_match.id),
             )
         else:
+            sent = await tova_reviews_service.notify_tova_reviewers(
+                message.bot,
+                session,
+                open_match,
+                reminder=True,
+            )
+            extra = (
+                f"\n\nАдминам отправлено напоминание ({sent} доставок)."
+                if sent
+                else "\n\nНе удалось отправить напоминание админам TOVA — проверьте TOVA_ADMIN_ID."
+            )
             await message.answer(
                 card
                 + f"У вас уже есть матч #{open_match.id} на проверке у админов. "
                 "Дождитесь решения."
+                + extra
             )
         return
 
@@ -258,7 +253,7 @@ async def result_screenshot(message: Message, state: FSMContext, session: AsyncS
                 err
                 + "\n\nПодтвердите / отклоните незакрытый матч ниже "
                 "или /cancel_match.",
-                reply_markup=_confirm_kb(open_match.id),
+                reply_markup=tova_confirm_kb(open_match.id),
             )
         else:
             await message.answer(err + "\nМожно начать заново: /result_tova ...")
@@ -282,7 +277,7 @@ async def result_screenshot(message: Message, state: FSMContext, session: AsyncS
                 card
                 + "\n\nПодтвердите корректность результата."
             ),
-            reply_markup=_confirm_kb(match.id),
+            reply_markup=tova_confirm_kb(match.id),
         )
     except Exception:
         await message.answer(
@@ -363,32 +358,34 @@ async def cb_confirm_match(callback: CallbackQuery, session: AsyncSession) -> No
         except Exception:
             pass
 
-    admin_text = (
-        "<b>Новый результат TOVA на проверку!</b>\n\n" + card
+    await tova_reviews_service.notify_tova_reviewers(
+        callback.bot,
+        session,
+        match,
+        reminder=False,
     )
-    reviewer_ids = await users_service.resolve_tova_reviewer_ids(session)
-    if not reviewer_ids:
-        logger.warning(
-            "TOVA pending_admin match=%s: no TOVA_ADMIN_ID / ADMINS_TOVA recipient",
-            match.id,
-        )
-    for admin_id in reviewer_ids:
-        try:
-            if match.screenshot_file_id:
-                await callback.bot.send_photo(
-                    admin_id,
-                    photo=match.screenshot_file_id,
-                    caption=admin_text,
-                    reply_markup=_admin_kb(match.id),
-                )
-            else:
-                await callback.bot.send_message(
-                    admin_id,
-                    admin_text,
-                    reply_markup=_admin_kb(match.id),
-                )
-        except Exception:
-            logger.exception("Failed to send TOVA card to %s", admin_id)
+
+
+@router.message(Command("pending_tova"))
+async def cmd_pending_tova(message: Message, session: AsyncSession) -> None:
+    settings = get_settings()
+    if not message.from_user or not settings.is_tova_admin(
+        message.from_user.id,
+        message.from_user.username,
+    ):
+        return
+
+    match_count, deliveries = await tova_reviews_service.resend_pending_admin_cards(
+        message.bot,
+        session,
+    )
+    if match_count == 0:
+        await message.answer("Нет матчей TOVA в статусе pending_admin.")
+        return
+    await message.answer(
+        f"Отправлены карточки по {match_count} матч(ам) на проверке "
+        f"({deliveries} доставок админам TOVA)."
+    )
 
 
 @router.callback_query(F.data.startswith("tova:admin:"))

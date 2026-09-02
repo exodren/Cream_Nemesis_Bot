@@ -10,6 +10,7 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
+from services import seasons as seasons_service
 from services import moderation as mod
 from services import users as users_service
 
@@ -189,6 +190,12 @@ async def cmd_ban(message: Message, session: AsyncSession) -> None:
 
     chat_id = _target_chat_id(message)
     user.is_banned = True
+    season = await seasons_service.get_current_season(session)
+    await seasons_service.deactivate_participant_by_tg_id(
+        session,
+        tg_id=user.tg_id,
+        season=season,
+    )
     ok, api_err = await mod.safe_ban(message.bot, chat_id, user.tg_id)
     logger.info("ban chat=%s user=%s ok=%s err=%s", chat_id, user.tg_id, ok, api_err)
     mention = f"@{user.username}" if user.username else str(user.tg_id)

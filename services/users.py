@@ -47,6 +47,19 @@ async def resolve_tova_reviewer_ids(session: AsyncSession) -> list[int]:
     return sorted(ids)
 
 
+async def resolve_admin_ids(session: AsyncSession) -> list[int]:
+    """Telegram IDs for ADMIN_IDS plus known users from ADMIN_USERNAMES."""
+    from config import get_settings
+
+    settings = get_settings()
+    ids: set[int] = set(settings.admin_ids)
+    for uname in settings.admin_usernames:
+        user = await get_user_by_username(session, uname)
+        if user:
+            ids.add(user.tg_id)
+    return sorted(ids)
+
+
 async def get_user_by_nickname(session: AsyncSession, nickname: str) -> User | None:
     result = await session.execute(
         select(User).where(func.lower(User.nickname) == nickname.lower())
@@ -76,7 +89,17 @@ async def set_nickname(
         return False, err
 
     cleaned = nickname.strip()
+    from services import seasons as seasons_service
+
+    season = await seasons_service.get_current_season(session)
+
     if user.nickname == cleaned:
+        await seasons_service.ensure_participant(
+            session,
+            user_id=user.id,
+            season=season,
+            reactivate=True,
+        )
         return True, f"Никнейм уже установлен: <b>{cleaned}</b>"
 
     existing = await get_user_by_nickname(session, cleaned)
@@ -94,6 +117,12 @@ async def set_nickname(
         return False, "Этот никнейм уже занят. Выберите другой."
 
     user.nickname = cleaned
+    await seasons_service.ensure_participant(
+        session,
+        user_id=user.id,
+        season=season,
+        reactivate=True,
+    )
     return True, f"Никнейм сохранён: <b>{cleaned}</b>"
 
 

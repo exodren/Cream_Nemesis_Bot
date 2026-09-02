@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Goal, Match, User
+from db.models import Goal, Match, SeasonParticipant, User
+from services.seasons import active_participant_user_ids
 
 
 @dataclass
@@ -96,12 +97,27 @@ def _apply_match(stats: dict[int, PlayerStats], match: Match, users: dict[int, U
         s2.points += 1
 
 
-async def build_standings(session: AsyncSession, season: int) -> list[PlayerStats]:
+async def build_standings(
+    session: AsyncSession,
+    season: int,
+    *,
+    historical: bool = False,
+) -> list[PlayerStats]:
+    active_ids: set[int] | None = None
+    if not historical:
+        active_ids = await active_participant_user_ids(session, season)
+
     matches = await _confirmed_matches(session, season)
     user_ids = {m.player1_id for m in matches} | {m.player2_id for m in matches}
+    if active_ids is not None:
+        user_ids &= active_ids
     users = await _users_map(session, user_ids)
     stats: dict[int, PlayerStats] = {}
     for match in matches:
+        if active_ids is not None and (
+            match.player1_id not in active_ids or match.player2_id not in active_ids
+        ):
+            continue
         _apply_match(stats, match, users)
 
     return sorted(
@@ -111,8 +127,19 @@ async def build_standings(session: AsyncSession, season: int) -> list[PlayerStat
     )
 
 
-async def build_scorers(session: AsyncSession, season: int) -> list[ScorerStats]:
-    result = await session.execute(
+async def build_scorers(
+    session: AsyncSession,
+    season: int,
+    *,
+    historical: bool = False,
+) -> list[ScorerStats]:
+    active_ids: set[int] | None = None
+    if not historical:
+        active_ids = await active_participant_user_ids(session, season)
+        if not active_ids:
+            return []
+
+    query = (
         select(
             Goal.player_name,
             User.nickname,
@@ -121,7 +148,12 @@ async def build_scorers(session: AsyncSession, season: int) -> list[ScorerStats]
         .join(Match, Match.id == Goal.match_id)
         .join(User, User.id == Goal.user_id)
         .where(Match.status == "confirmed", Match.season == season)
-        .group_by(Goal.player_name, User.nickname)
+    )
+    if active_ids is not None:
+        query = query.where(Goal.user_id.in_(active_ids))
+
+    result = await session.execute(
+        query.group_by(Goal.player_name, User.nickname)
         .order_by(func.sum(Goal.goals_count).desc(), Goal.player_name.asc())
     )
     rows = result.all()
@@ -182,15 +214,30 @@ async def get_best_scorer_for_user(
     )
 
 
-async def season_summary(session: AsyncSession, season: int) -> SeasonSummary:
-    standings = await build_standings(session, season)
-    scorers = await build_scorers(session, season)
+async def season_summary(
+    session: AsyncSession,
+    season: int,
+    *,
+    historical: bool = False,
+) -> SeasonSummary:
+    standings = await build_standings(session, season, historical=historical)
+    scorers = await build_scorers(session, season, historical=historical)
     matches = await _confirmed_matches(session, season)
 
-    registered = await session.execute(
-        select(func.count()).select_from(User).where(User.nickname.is_not(None))
-    )
-    total_players = int(registered.scalar() or 0)
+    if historical:
+        total_players = len(standings)
+    else:
+        registered = await session.execute(
+            select(func.count())
+            .select_from(SeasonParticipant)
+            .join(User, User.id == SeasonParticipant.user_id)
+            .where(
+                SeasonParticipant.season == season,
+                SeasonParticipant.is_active.is_(True),
+                User.nickname.is_not(None),
+            )
+        )
+        total_players = int(registered.scalar() or 0)
 
     summary = SeasonSummary(
         top5=standings[:5],
@@ -204,8 +251,14 @@ async def season_summary(session: AsyncSession, season: int) -> SeasonSummary:
     return summary
 
 
-def format_season_text(summary: SeasonSummary, season: int) -> str:
-    lines = [f"<b>Статистика сезона TOVA #{season}</b>", "", "<b>Лидеры сезона:</b>"]
+def format_season_text(
+    summary: SeasonSummary,
+    season: int,
+    *,
+    archived: bool = False,
+) -> str:
+    suffix = " (архив)" if archived else ""
+    lines = [f"<b>Статистика сезона TOVA #{season}</b>{suffix}", "", "<b>Лидеры сезона:</b>"]
     if summary.leaders_points:
         p = summary.leaders_points
         lines.append(

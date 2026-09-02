@@ -5,8 +5,8 @@ import re
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import get_settings
 from db.models import Goal, Match, User
+from services.seasons import get_current_season
 from services.users import get_user_by_nickname
 
 RESULT_RE = re.compile(
@@ -110,7 +110,7 @@ async def create_pending_match(
             f"Ожидалось {score1}:{score2}, получено {goals_sum_1}:{goals_sum_2}."
         )
 
-    settings = get_settings()
+    season = await get_current_season(session)
     match = Match(
         player1_id=p1.id,
         player2_id=p2.id,
@@ -118,7 +118,7 @@ async def create_pending_match(
         score2=score2,
         status="pending_confirm",
         screenshot_file_id=screenshot_file_id,
-        season=settings.current_season,
+        season=season,
         submitted_by_id=submitter.id,
         p1_confirmed=submitter.id == p1.id,
         p2_confirmed=submitter.id == p2.id,

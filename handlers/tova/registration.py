@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from handlers.callback_ui import edit_screen
 from handlers.tova.private import bot_deep_link, private_redirect_kb
 from handlers.tova.states import NicknameFSM
 from keyboards.main import back_only_kb
@@ -19,15 +20,15 @@ router = Router(name="tova_registration")
 
 @router.callback_query(F.data == "menu:tova:reg:set")
 async def cb_set_nickname(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    await callback.answer()
     if not callback.message:
         return
 
     if callback.message.chat.type != ChatType.PRIVATE:
         url = await bot_deep_link(callback.bot, "tova_nick")
-        await callback.message.answer(
+        await edit_screen(
+            callback,
             "Смену никнейма можно выполнить только в личке с ботом.",
-            reply_markup=private_redirect_kb(url),
+            private_redirect_kb(url),
         )
         return
 
@@ -38,17 +39,17 @@ async def cb_set_nickname(callback: CallbackQuery, state: FSMContext, session: A
     )
     current = f"\nТекущий никнейм: <b>{user.nickname}</b>" if user.nickname else ""
     await state.set_state(NicknameFSM.waiting_nickname)
-    await callback.message.answer(
+    await edit_screen(
+        callback,
         "Введите свой игровой никнейм в FC Mobile.\n"
         "Без пробелов, до 64 символов."
         f"{current}\n\n"
-        "Отмена: /cancel"
+        "Отмена: /cancel",
     )
 
 
 @router.callback_query(F.data == "menu:tova:reg:del")
 async def cb_del_nickname(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    await callback.answer()
     if not callback.message:
         return
 
@@ -59,7 +60,8 @@ async def cb_del_nickname(callback: CallbackQuery, state: FSMContext, session: A
         username=callback.from_user.username,
     )
     text = await users_service.clear_nickname(session, user)
-    await callback.message.answer(text, reply_markup=tova_reg_kb())
+    nick_line = "\n\nНикнейм ещё не задан."
+    await edit_screen(callback, f"{text}\n{TOVA_REG_MENU}{nick_line}", tova_reg_kb())
 
 
 @router.message(Command("cancel"), StateFilter(NicknameFSM.waiting_nickname))

@@ -36,6 +36,46 @@ class User(Base):
 
     warnings: Mapped[list["Warning"]] = relationship(back_populates="user")
     goals: Mapped[list["Goal"]] = relationship(back_populates="user")
+    season_entries: Mapped[list["SeasonParticipant"]] = relationship(back_populates="user")
+
+
+class Season(Base):
+    __tablename__ = "seasons"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    number: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    ended_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
+class SeasonParticipant(Base):
+    __tablename__ = "season_participants"
+    __table_args__ = (
+        UniqueConstraint("user_id", "season", name="uq_season_participant_user_season"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    season: Mapped[int] = mapped_column(Integer, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    deactivated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="season_entries")
 
 
 class Match(Base):
