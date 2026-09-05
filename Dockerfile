@@ -23,6 +23,7 @@ RUN pip install -r requirements.txt
 
 COPY bot.py config.py logging_setup.py ./
 COPY db ./db
+COPY filters ./filters
 COPY handlers ./handlers
 COPY keyboards ./keyboards
 COPY middlewares ./middlewares
