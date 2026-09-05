@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 
 from aiogram import Router
 from aiogram.enums import ChatType
@@ -10,18 +11,23 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from services import seasons as seasons_service
+from filters import AdminFilter
 from services import moderation as mod
+from services import seasons as seasons_service
 from services import users as users_service
 
 router = Router(name="admin")
+router.message.filter(AdminFilter())
 logger = logging.getLogger(__name__)
 
 MENTION_RE = re.compile(r"@(\w+)")
 
 
-def _is_admin(user_id: int, username: str | None = None) -> bool:
-    return get_settings().is_admin(user_id, username)
+@dataclass(frozen=True)
+class WarnParseResult:
+    username: str | None
+    league_nickname: str | None
+    reason: str | None
 
 
 def _target_chat_id(message: Message) -> int:
@@ -35,6 +41,53 @@ def _target_chat_id(message: Message) -> int:
     return settings.main_chat_id or message.chat.id
 
 
+def parse_warn_args(text: str | None, *, from_reply: bool) -> WarnParseResult:
+    """
+    Supported forms:
+      /warn @user
+      /warn @user - NickName
+      /warn @user - NickName optional reason
+      /warn @user reason without dash
+      reply + /warn
+      reply + /warn - NickName
+      reply + /warn - NickName reason
+      reply + /warn reason
+    """
+    raw = (text or "").strip()
+    # drop /warn[@bot]
+    body = re.sub(r"^/warn(?:@\w+)?\s*", "", raw, count=1, flags=re.IGNORECASE).strip()
+
+    username: str | None = None
+    rest = body
+
+    if not from_reply:
+        if not body:
+            return WarnParseResult(None, None, None)
+        m = MENTION_RE.match(body) or re.match(r"(\w+)", body)
+        if not m:
+            return WarnParseResult(None, None, None)
+        username = m.group(1)
+        rest = body[m.end() :].strip()
+    elif body.startswith("@"):
+        # rare: reply + also @mention — ignore mention, treat as body
+        pass
+
+    league_nickname: str | None = None
+    reason: str | None = None
+
+    if rest.startswith("-"):
+        after_dash = rest[1:].strip()
+        if after_dash:
+            parts = after_dash.split(None, 1)
+            league_nickname = parts[0]
+            reason = parts[1].strip() if len(parts) > 1 else None
+    elif rest:
+        # "/warn @user some reason" without nickname dash
+        reason = rest
+
+    return WarnParseResult(username=username, league_nickname=league_nickname, reason=reason)
+
+
 async def _resolve_from_message(
     message: Message,
     session: AsyncSession,
@@ -42,7 +95,6 @@ async def _resolve_from_message(
 ) -> tuple[object | None, str | None]:
     chat_id = _target_chat_id(message)
 
-    # reply
     if message.reply_to_message and message.reply_to_message.from_user:
         target = message.reply_to_message.from_user
         if target.is_bot:
@@ -54,7 +106,6 @@ async def _resolve_from_message(
         )
         return user, None
 
-    # @username in args
     if len(parts) >= 2:
         m = MENTION_RE.search(parts[1])
         username = m.group(1) if m else parts[1].lstrip("@")
@@ -70,26 +121,57 @@ async def _resolve_from_message(
 
 @router.message(Command("warn"))
 async def cmd_warn(message: Message, session: AsyncSession) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id, message.from_user.username):
+    if not message.from_user:
         return
 
-    parts = (message.text or "").split()
-    user, err = await _resolve_from_message(message, session, parts)
-    if err or user is None:
-        await message.answer(err or "Пользователь не найден.")
-        return
+    from_reply = bool(message.reply_to_message and message.reply_to_message.from_user)
+    parsed = parse_warn_args(message.text, from_reply=from_reply)
 
-    reason = " ".join(parts[2:]) if len(parts) > 2 else None
+    if from_reply:
+        target = message.reply_to_message.from_user  # type: ignore[union-attr]
+        if target.is_bot:
+            await message.answer("Нельзя применять модерацию к боту.")
+            return
+        user = await users_service.get_or_create_user(
+            session,
+            tg_id=target.id,
+            username=target.username,
+        )
+    else:
+        if not parsed.username:
+            await message.answer(
+                "Формат:\n"
+                "/warn @username\n"
+                "/warn @username - NickName\n"
+                "/warn @username - NickName причина\n"
+                "или reply + /warn [- NickName] [причина]"
+            )
+            return
+        user, err = await mod.resolve_target_user(
+            session,
+            bot=message.bot,
+            chat_id=_target_chat_id(message),
+            username=parsed.username,
+        )
+        if err or user is None:
+            await message.answer(err or "Пользователь не найден.")
+            return
+
     count = await mod.add_warning(
         session,
         user=user,
         admin_tg_id=message.from_user.id,
-        reason=reason,
+        reason=parsed.reason,
+        league_nickname=parsed.league_nickname,
+        username=user.username or parsed.username,
     )
     mention = f"@{user.username}" if user.username else str(user.tg_id)
+    nick = parsed.league_nickname or user.nickname
+    nick_line = f" ({nick})" if nick else ""
     chat_id = _target_chat_id(message)
     await message.answer(
-        f"Предупреждение выдано {mention}.\nАктивных предупреждений: {count}/3"
+        f"Предупреждение выдано {mention}{nick_line}.\n"
+        f"Активных предупреждений: {count}/3"
     )
 
     if count >= 3:
@@ -108,9 +190,6 @@ async def cmd_warn(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("unwarn"))
 async def cmd_unwarn(message: Message, session: AsyncSession) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id, message.from_user.username):
-        return
-
     parts = (message.text or "").split()
     user, err = await _resolve_from_message(message, session, parts)
     if err or user is None:
@@ -126,9 +205,6 @@ async def cmd_unwarn(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("mute"))
 async def cmd_mute(message: Message, session: AsyncSession) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id, message.from_user.username):
-        return
-
     parts = (message.text or "").split()
     minutes = 60
     if message.reply_to_message:
@@ -158,9 +234,6 @@ async def cmd_mute(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("unmute"))
 async def cmd_unmute(message: Message, session: AsyncSession) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id, message.from_user.username):
-        return
-
     parts = (message.text or "").split()
     user, err = await _resolve_from_message(message, session, parts)
     if err or user is None:
@@ -179,9 +252,6 @@ async def cmd_unmute(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("ban"))
 async def cmd_ban(message: Message, session: AsyncSession) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id, message.from_user.username):
-        return
-
     parts = (message.text or "").split()
     user, err = await _resolve_from_message(message, session, parts)
     if err or user is None:
@@ -209,9 +279,6 @@ async def cmd_ban(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("unban"))
 async def cmd_unban(message: Message, session: AsyncSession) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id, message.from_user.username):
-        return
-
     parts = (message.text or "").split()
     user, err = await _resolve_from_message(message, session, parts)
     if err or user is None:
@@ -229,3 +296,9 @@ async def cmd_unban(message: Message, session: AsyncSession) -> None:
         await message.answer(
             f"Бан снят в боте, но разбан в чате не выполнен.\n{api_err}"
         )
+
+
+@router.message(Command("warns"))
+async def cmd_warns(message: Message, session: AsyncSession) -> None:
+    rows = await mod.list_active_warn_summary(session)
+    await message.answer(mod.format_active_warns_text(rows))

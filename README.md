@@ -86,6 +86,8 @@ python bot.py
 | `/result_tova nick1 8:2 nick2` | сдача результата (**только ЛС**) |
 | `/warn` `/unwarn` `/mute` `/unmute` `/ban` `/unban` | админка (`ADMIN_IDS` или `ADMIN_USERNAMES`) |
 | `/season_manage` | управление сезонами TOVA (**только** `ADMIN_IDS`) |
+| `/admin` | инлайн админ-панель (сезоны, варны, состав ЛПЛ) |
+| `/warns` | список активных варнов |
 | `/pending_tova` | повторная рассылка матчей на проверке (админы TOVA) |
 | `/topicid` `/chatid` | ID чата и темы форума для `.env` |
 
@@ -98,6 +100,14 @@ python bot.py
 - `/season_manage` — завершить сезон или начать новый.
 - Матчи `pending_admin` пересылаются при рестарте бота; вручную — `/pending_tova`.
 - Навигация по inline-кнопкам в ЛС **редактирует** сообщение, а не плодит новые.
+
+## Админ-панель V2
+
+- Кнопка **Админ-панель** в `/start` только для `ADMIN_IDS` / `ADMIN_USERNAMES`.
+- Хэндлеры закрыты через `AdminFilter` (`filters/admin.py`).
+- `/warn @user - NickName [причина]` — сохраняет ник лиги; варны сгорают через **30 дней** (cron 03:00 Asia/Almaty).
+- **ЛПЛ авто-тег:** загрузка состава в админке → скрытые HTML-теги в `MAIN_CHAT_ID` в 12:00 / 16:00 / 20:00.
+- Планировщик: `APScheduler` (`services/scheduler.py`).
 
 ## Техтребования
 

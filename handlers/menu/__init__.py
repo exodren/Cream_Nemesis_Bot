@@ -53,9 +53,14 @@ async def menu_topic_missing(callback: CallbackQuery) -> None:
 async def menu_main(callback: CallbackQuery) -> None:
     user = callback.from_user
     mention = f"@{user.username}" if user.username else user.full_name
+    from config import get_settings
     from texts import START
 
-    await edit_screen(callback, START.format(mention=mention), main_menu_kb())
+    await edit_screen(
+        callback,
+        START.format(mention=mention),
+        main_menu_kb(is_admin=get_settings().is_admin(user.id, user.username)),
+    )
 
 
 @router.callback_query(F.data == "menu:regulation")

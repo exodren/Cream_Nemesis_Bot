@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from handlers.tova.states import NicknameFSM
 from keyboards.main import main_menu_kb
 from keyboards.tova import tova_reg_kb
+from config import get_settings
 from services import users as users_service
 from texts import START
 
@@ -56,5 +57,10 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext) 
 
     await message.answer(
         START.format(mention=mention),
-        reply_markup=main_menu_kb(),
+        reply_markup=main_menu_kb(
+            is_admin=get_settings().is_admin(
+                user.id if user else 0,
+                user.username if user else None,
+            )
+        ),
     )

@@ -1,4 +1,5 @@
-.env
+.env*
+!.env.example
 .venv/
 venv/
 docs/
@@ -7,7 +8,8 @@ __pycache__/
 *$py.class
 data/*
 !data/.gitkeep
-data - */
+*копия*
+*copy*
 *.db
 *.db-shm
 *.db-wal
@@ -19,3 +21,6 @@ logs/
 dist/
 build/
 *.egg-info/
+*.bak
+*.swp
+*.tmp

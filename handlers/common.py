@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import any_state
 from aiogram.types import Message
 
-from config import telegram_c_id
+from config import get_settings, telegram_c_id
 from keyboards.main import main_menu_kb
 
 router = Router(name="common")
@@ -24,7 +24,9 @@ HELP_TEXT = (
     "/result_tova nick1 8:2 nick2 — сдать результат (только в ЛС)\n"
     "/cancel_match — отклонить свой незакрытый матч TOVA\n\n"
     "<b>Админам</b>\n"
-    "/warn /unwarn /mute /unmute /ban /unban\n"
+    "/admin — админ-панель\n"
+    "/warn /unwarn /warns /mute /unmute /ban /unban\n"
+    "/season_manage — сезоны TOVA\n"
     "/topicid — ID чата и темы (для .env)\n\n"
     "Ссылки на темы закрытых чатов открываются только у участников этих чатов."
 )
@@ -32,7 +34,11 @@ HELP_TEXT = (
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(HELP_TEXT, reply_markup=main_menu_kb())
+    is_admin = bool(
+        message.from_user
+        and get_settings().is_admin(message.from_user.id, message.from_user.username)
+    )
+    await message.answer(HELP_TEXT, reply_markup=main_menu_kb(is_admin=is_admin))
 
 
 @router.message(Command("topicid", "chatid"))

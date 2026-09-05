@@ -123,11 +123,35 @@ class Warning(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     admin_id: Mapped[int] = mapped_column(BigInteger)
+    username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    league_nickname: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     reason: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # Column name in SQLite stays `active` for backward compatibility.
+    is_active: Mapped[bool] = mapped_column(
+        "active",
+        Boolean,
+        default=True,
+        server_default="1",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
     )
 
     user: Mapped["User"] = relationship(back_populates="warnings")
+
+
+class LplRosterMember(Base):
+    """Current LPL squad for auto-tag reminders."""
+
+    __tablename__ = "lpl_roster"
+    __table_args__ = (UniqueConstraint("username", name="uq_lpl_roster_username"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), index=True)
+    tg_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

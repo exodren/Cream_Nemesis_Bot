@@ -13,6 +13,7 @@ from sqlalchemy import text
 from config import get_settings
 from db.base import async_session, engine, init_db
 from handlers.admin import router as admin_router
+from handlers.admin_panel import router as admin_panel_router
 from handlers.common import router as common_router
 from handlers.matchmaking import router as matchmaking_router
 from handlers.menu import router as menu_router
@@ -26,6 +27,7 @@ from handlers.welcome import router as welcome_router
 from logging_setup import setup_logging
 from middlewares.db import DbSessionMiddleware
 from services.bot_commands import set_bot_commands
+from services.scheduler import setup_scheduler, shutdown_scheduler
 from services.tova_reviews import resend_pending_admin_cards
 
 
@@ -70,6 +72,7 @@ async def main() -> None:
     dp.include_router(matchmaking_router)
     dp.include_router(results_router)
     dp.include_router(stats_router)
+    dp.include_router(admin_panel_router)
     dp.include_router(admin_router)
     dp.include_router(season_manage_router)
     dp.include_router(common_router)
@@ -84,8 +87,12 @@ async def main() -> None:
     )
     await set_bot_commands(bot)
     await _resend_pending_tova_cards(bot)
+    setup_scheduler(bot)
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        shutdown_scheduler()
 
 
 if __name__ == "__main__":

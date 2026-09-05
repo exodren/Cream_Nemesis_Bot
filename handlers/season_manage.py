@@ -4,40 +4,20 @@ import logging
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import get_settings
+from filters import AdminFilter
+from keyboards.admin_panel import admin_seasons_kb
 from services import seasons as seasons_service
 
 router = Router(name="season_manage")
+router.message.filter(AdminFilter(strict_ids=True))
+router.callback_query.filter(AdminFilter(strict_ids=True))
 logger = logging.getLogger(__name__)
 
 
-def _is_admin_id(user_id: int) -> bool:
-    return user_id in get_settings().admin_ids
-
-
-def _season_manage_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Завершить текущий сезон",
-                    callback_data="season:end",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Начать новый сезон",
-                    callback_data="season:start",
-                )
-            ],
-        ]
-    )
-
-
-async def _season_manage_text(session: AsyncSession) -> str:
+async def season_manage_text(session: AsyncSession) -> str:
     season = await seasons_service.get_current_season_row(session)
     if season is None:
         number = await seasons_service.get_current_season(session)
@@ -68,51 +48,45 @@ async def _season_manage_text(session: AsyncSession) -> str:
 
 @router.message(Command("season_manage"))
 async def cmd_season_manage(message: Message, session: AsyncSession) -> None:
-    if not message.from_user or not _is_admin_id(message.from_user.id):
-        return
-
-    text = await _season_manage_text(session)
-    await message.answer(text, reply_markup=_season_manage_kb())
+    text = await season_manage_text(session)
+    await message.answer(text, reply_markup=admin_seasons_kb())
 
 
 @router.callback_query(F.data == "season:end")
 async def cb_end_season(callback: CallbackQuery, session: AsyncSession) -> None:
-    if not callback.from_user or not _is_admin_id(callback.from_user.id):
-        await callback.answer("Только для ADMIN_IDS.", show_alert=True)
-        return
-
     ok, result_text = await seasons_service.end_current_season(session)
     await callback.answer(result_text, show_alert=True)
 
     if callback.message:
-        text = await _season_manage_text(session)
+        text = await season_manage_text(session)
         try:
-            await callback.message.edit_text(text, reply_markup=_season_manage_kb())
+            await callback.message.edit_text(text, reply_markup=admin_seasons_kb())
         except Exception:
             logger.exception("Failed to refresh season_manage menu after end")
 
-    logger.info("Season end by admin=%s: ok=%s msg=%s", callback.from_user.id, ok, result_text)
+    logger.info(
+        "Season end by admin=%s: ok=%s msg=%s",
+        callback.from_user.id if callback.from_user else None,
+        ok,
+        result_text,
+    )
 
 
 @router.callback_query(F.data == "season:start")
 async def cb_start_season(callback: CallbackQuery, session: AsyncSession) -> None:
-    if not callback.from_user or not _is_admin_id(callback.from_user.id):
-        await callback.answer("Только для ADMIN_IDS.", show_alert=True)
-        return
-
     ok, result_text, new_number = await seasons_service.start_new_season(session)
     await callback.answer(result_text, show_alert=True)
 
     if callback.message:
-        text = await _season_manage_text(session)
+        text = await season_manage_text(session)
         try:
-            await callback.message.edit_text(text, reply_markup=_season_manage_kb())
+            await callback.message.edit_text(text, reply_markup=admin_seasons_kb())
         except Exception:
             logger.exception("Failed to refresh season_manage menu after start")
 
     logger.info(
         "Season start by admin=%s: ok=%s new=%s msg=%s",
-        callback.from_user.id,
+        callback.from_user.id if callback.from_user else None,
         ok,
         new_number,
         result_text,

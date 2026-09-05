@@ -25,7 +25,10 @@ USER_COMMANDS = [
 ]
 
 ADMIN_COMMANDS = USER_COMMANDS + [
+    BotCommand(command="admin", description="Админ-панель"),
     BotCommand(command="warn", description="Выдать предупреждение"),
+    BotCommand(command="unwarn", description="Снять предупреждение"),
+    BotCommand(command="warns", description="Список активных варнов"),
     BotCommand(command="mute", description="Замутить пользователя"),
     BotCommand(command="ban", description="Забанить пользователя"),
     BotCommand(command="season_manage", description="Управление сезонами TOVA"),

@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from texts import BACK, MAIN_MENU
 
 
-def main_menu_kb() -> InlineKeyboardMarkup:
+def main_menu_kb(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="РЕГЛАМЕНТ / АКТИВ", callback_data="menu:regulation")
@@ -25,6 +25,10 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     )
     builder.row(InlineKeyboardButton(text="Админы", callback_data="menu:admins"))
     builder.row(InlineKeyboardButton(text="TOVA", callback_data="menu:tova"))
+    if is_admin:
+        builder.row(
+            InlineKeyboardButton(text="Админ-панель", callback_data="admin:panel")
+        )
     return builder.as_markup()
 
 

@@ -5,8 +5,9 @@ from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import ChatPermissions
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from db.models import User, Warning
 from services import users as users_service
@@ -41,6 +42,8 @@ UNMUTE_PERMISSIONS = ChatPermissions(
     can_send_other_messages=True,
     can_add_web_page_previews=True,
 )
+
+WARN_TTL_DAYS = 30
 
 
 def _api_error(exc: Exception) -> str:
@@ -88,9 +91,11 @@ async def resolve_target_user(
 
 async def count_active_warns(session: AsyncSession, user_id: int) -> int:
     result = await session.execute(
-        select(Warning).where(Warning.user_id == user_id, Warning.active.is_(True))
+        select(func.count())
+        .select_from(Warning)
+        .where(Warning.user_id == user_id, Warning.is_active.is_(True))
     )
-    return len(list(result.scalars().all()))
+    return int(result.scalar_one() or 0)
 
 
 async def add_warning(
@@ -99,13 +104,19 @@ async def add_warning(
     user: User,
     admin_tg_id: int,
     reason: str | None = None,
+    league_nickname: str | None = None,
+    username: str | None = None,
 ) -> int:
+    nick = (league_nickname or user.nickname or "").strip() or None
+    uname = (username or user.username or "").strip().lstrip("@") or None
     session.add(
         Warning(
             user_id=user.id,
             admin_id=admin_tg_id,
+            username=uname,
+            league_nickname=nick,
             reason=reason,
-            active=True,
+            is_active=True,
         )
     )
     await session.flush()
@@ -115,16 +126,81 @@ async def add_warning(
 async def remove_one_warning(session: AsyncSession, user: User) -> int:
     result = await session.execute(
         select(Warning)
-        .where(Warning.user_id == user.id, Warning.active.is_(True))
+        .where(Warning.user_id == user.id, Warning.is_active.is_(True))
         .order_by(Warning.created_at.desc())
         .limit(1)
     )
     warn = result.scalar_one_or_none()
     if warn is None:
         return await count_active_warns(session, user.id)
-    warn.active = False
+    warn.is_active = False
     await session.flush()
     return await count_active_warns(session, user.id)
+
+
+async def expire_old_warnings(
+    session: AsyncSession,
+    *,
+    days: int = WARN_TTL_DAYS,
+) -> int:
+    """Deactivate warnings older than `days`. Returns number of rows updated."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await session.execute(
+        update(Warning)
+        .where(Warning.is_active.is_(True), Warning.created_at < cutoff)
+        .values(is_active=False)
+    )
+    await session.flush()
+    return int(result.rowcount or 0)
+
+
+async def list_active_warn_summary(session: AsyncSession) -> list[tuple[str, str, int]]:
+    """
+    Active warns grouped by user.
+    Returns list of (username_display, league_nickname, count).
+    """
+    result = await session.execute(
+        select(Warning)
+        .options(selectinload(Warning.user))
+        .where(Warning.is_active.is_(True))
+        .order_by(Warning.created_at.desc())
+    )
+    warns = list(result.scalars().all())
+
+    # user_id -> (uname, nick, count)
+    buckets: dict[int, tuple[str, str, int]] = {}
+    for w in warns:
+        user = w.user
+        uname = (
+            w.username
+            or (user.username if user else None)
+            or str(user.tg_id if user else w.user_id)
+        )
+        nick = w.league_nickname or (user.nickname if user else None) or "—"
+        if not uname.startswith("@") and not uname.isdigit():
+            uname = f"@{uname}"
+        elif uname.isdigit():
+            uname = f"id:{uname}"
+        prev = buckets.get(w.user_id)
+        if prev is None:
+            buckets[w.user_id] = (uname, nick, 1)
+        else:
+            buckets[w.user_id] = (prev[0], prev[1] if prev[1] != "—" else nick, prev[2] + 1)
+
+    rows = list(buckets.values())
+    rows.sort(key=lambda r: (-r[2], r[0].lower()))
+    return rows
+
+
+def format_active_warns_text(rows: list[tuple[str, str, int]]) -> str:
+    if not rows:
+        return "<b>Активные варны</b>\n\nСейчас ни у кого нет активных предупреждений."
+    lines = ["<b>Активные варны</b>", ""]
+    for uname, nick, count in rows:
+        lines.append(f"{uname} - {nick} ({count}/3)")
+    lines.append("")
+    lines.append("<i>Варн сгорает через 30 дней.</i>")
+    return "\n".join(lines)
 
 
 async def safe_ban(bot: Bot, chat_id: int, user_id: int) -> tuple[bool, str | None]:

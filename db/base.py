@@ -55,12 +55,40 @@ def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:  # type: i
     cursor.close()
 
 
+async def _sqlite_columns(conn, table: str) -> set[str]:
+    rows = (await conn.execute(text(f"PRAGMA table_info({table})"))).mappings().all()
+    return {str(row["name"]) for row in rows}
+
+
+async def migrate_schema(conn) -> None:
+    """Add missing columns on existing SQLite DBs (create_all does not ALTER)."""
+    tables = {
+        row[0]
+        for row in (
+            await conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            )
+        ).all()
+    }
+    if "warnings" not in tables:
+        return
+
+    columns = await _sqlite_columns(conn, "warnings")
+    if "username" not in columns:
+        await conn.execute(text("ALTER TABLE warnings ADD COLUMN username VARCHAR(64)"))
+    if "league_nickname" not in columns:
+        await conn.execute(
+            text("ALTER TABLE warnings ADD COLUMN league_nickname VARCHAR(64)")
+        )
+
+
 async def init_db() -> None:
     from db import models  # noqa: F401 — register models
     from services.seasons import bootstrap_seasons
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await migrate_schema(conn)
         # Explicit WAL ensure after create (in addition to connect hook)
         await conn.execute(text("PRAGMA journal_mode=WAL;"))
         await conn.execute(text("PRAGMA busy_timeout=5000;"))
