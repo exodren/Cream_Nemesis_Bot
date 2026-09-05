@@ -186,7 +186,7 @@ async def cb_lpl_tag_now(callback: CallbackQuery, session: AsyncSession) -> None
         await job_lpl_auto_tag(callback.bot)
         await edit_screen(
             callback,
-            f"Тег ЛПЛ отправлен в чат лиги ({len(members)} участников).",
+            f"Тег ЛПЛ отправлен в топик состава ({len(members)} участников).",
             admin_panel_kb(),
             answer=False,
         )

@@ -42,6 +42,8 @@ async def job_lpl_auto_tag(bot: Bot) -> None:
         logger.warning("LPL auto-tag skipped: MAIN_CHAT_ID is empty")
         return
 
+    topic_id = settings.topics.get("lpl_roster") or 12030
+
     async with async_session() as session:
         try:
             members = await lpl_service.list_roster(session)
@@ -57,10 +59,21 @@ async def job_lpl_auto_tag(bot: Bot) -> None:
 
     text = lpl_service.build_lpl_reminder_html(members)
     try:
-        await bot.send_message(chat_id, text, disable_web_page_preview=True)
-        logger.info("LPL auto-tag sent to chat=%s members=%s", chat_id, len(members))
+        await bot.send_message(
+            chat_id,
+            text,
+            message_thread_id=topic_id,
+            disable_web_page_preview=True,
+        )
+        logger.info(
+            "LPL auto-tag sent to chat=%s topic=%s members=%s",
+            chat_id,
+            topic_id,
+            len(members),
+        )
     except Exception:
-        logger.exception("LPL auto-tag send failed chat=%s", chat_id)
+        logger.exception("LPL auto-tag send failed chat=%s topic=%s", chat_id, topic_id)
+        raise
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
