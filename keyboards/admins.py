@@ -23,9 +23,10 @@ def _mention_line(usernames: list[str]) -> str:
 
 def admins_overview_text() -> str:
     settings = get_settings()
-    lines = ["<b>Админы лиг</b>", ""]
+    lines = ["<b>Администрация лиги</b>", ""]
     for key, title in LEAGUE_TITLES.items():
-        lines.append(f"<b>{title}</b>: {_mention_line(settings.league_admins.get(key, []))}")
+        label = f"Основатели {title}" if key == "cn" else title
+        lines.append(f"<b>{label}</b>: {_mention_line(settings.league_admins.get(key, []))}")
     lines.append("\nВыберите лигу, чтобы открыть профили:")
     return "\n".join(lines)
 
@@ -33,11 +34,12 @@ def admins_overview_text() -> str:
 def admins_league_text(league: str) -> str:
     settings = get_settings()
     title = LEAGUE_TITLES.get(league, league)
+    header = f"Основатели {title}" if league == "cn" else f"Админы {title}"
     names = settings.league_admins.get(league, [])
     if not names:
-        return f"<b>Админы {title}</b>\n\nПока не указаны в .env"
+        return f"<b>{header}</b>\n\nПока не указаны в .env"
     listed = "\n".join(f"• @{name}" for name in names)
-    return f"<b>Админы {title}</b>\n\n{listed}"
+    return f"<b>{header}</b>\n\n{listed}"
 
 
 def admins_menu_kb() -> InlineKeyboardMarkup:
