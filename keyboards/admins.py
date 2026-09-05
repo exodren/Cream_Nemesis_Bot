@@ -23,10 +23,16 @@ def _mention_line(usernames: list[str]) -> str:
 
 def admins_overview_text() -> str:
     settings = get_settings()
-    lines = ["<b>Администрация лиги</b>", ""]
+    cn_mentions = _mention_line(settings.league_admins.get("cn", []))
+    lines = [
+        f"<b>Основатели Cream Nemesis:</b> {cn_mentions}",
+        "",
+        "<b>Админы</b>",
+    ]
     for key, title in LEAGUE_TITLES.items():
-        label = f"Основатели {title}" if key == "cn" else title
-        lines.append(f"<b>{label}</b>: {_mention_line(settings.league_admins.get(key, []))}")
+        if key == "cn":
+            continue
+        lines.append(f"<b>{title}:</b> {_mention_line(settings.league_admins.get(key, []))}")
     lines.append("\nВыберите лигу, чтобы открыть профили:")
     return "\n".join(lines)
 
