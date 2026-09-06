@@ -192,3 +192,67 @@ WantedBy=multi-user.target
 ```
 
 Не коммитьте `.env` и `*.db`.
+
+## Импорт участников — `sync_chat_members.py`
+
+Добавлен одноразовый скрипт `sync_chat_members.py` для импорта всех участников Telegram-чата в локальную БД `users`.
+
+- Требования: `pyrogram`, `tgcrypto` (рекомендуется), рабочий пользователь Telegram с доступом к чату.
+- Скрипт использует ваш `API_ID`, `API_HASH` и `CHAT_ID` (можно задать через окружение или ввести при запросе):
+
+```bash
+export API_ID=123456
+export API_HASH=yourhash
+export CHAT_ID="-1001234567890"   # или @chatusername
+python sync_chat_members.py
+```
+
+Или запустить и ввести значения по запросу:
+
+```bash
+python sync_chat_members.py
+```
+
+Скрипт перебирает участников через Pyrogram, пропускает ботов и вызывает `services.users.get_or_create_user(...)` для каждого участника.
+
+Если нужны доработки (батчевые коммиты, сохранение `first_name` в отдельное поле, логирование в файл) — сообщите, добавлю.
+
+## Как запушить обновления в GitHub (короткая инструкция)
+
+Ниже набор типовых команд для локальной работы с Git и отправки изменений в удалённый репозиторий (GitHub). Предполагается, что вы находитесь в корне проекта и уже настроили `origin`.
+
+1) Посмотреть статус и создать новую ветку:
+
+```bash
+git status
+git checkout -b feature/sync-members-docs
+```
+
+2) Добавить изменённые файлы и закоммитить:
+
+```bash
+git add README.md sync_chat_members.py
+git commit -m "docs: add sync_chat_members usage and git push instructions"
+```
+
+3) Отправить ветку на GitHub:
+
+```bash
+git push -u origin feature/sync-members-docs
+```
+
+4) Открыть Pull Request на GitHub из `feature/sync-members-docs` → `main` (через веб-интерфейс) и попросить ревью/мерж.
+
+5) Если вы хотите сразу запушить в `main` (не рекомендуется без PR):
+
+```bash
+git checkout main
+git pull origin main
+git merge --no-ff feature/sync-members-docs
+git push origin main
+```
+
+Полезные советы:
+- Перед push убедитесь, что `.env` и `data/bot.db` не попадают в коммит (они в `.gitignore`).
+- Если Git ругается на локальные изменения, сохраните их в стэш: `git stash`, затем `git pull` и `git stash pop`.
+- Для безопасного отката используйте: `git reset --hard origin/main` (убирает локальные изменения).
