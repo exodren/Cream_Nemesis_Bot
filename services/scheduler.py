@@ -57,19 +57,19 @@ async def job_lpl_auto_tag(bot: Bot) -> None:
         logger.info("LPL auto-tag skipped: roster empty")
         return
 
-    text = lpl_service.build_lpl_reminder_html(members)
     try:
-        await bot.send_message(
-            chat_id,
-            text,
-            message_thread_id=topic_id,
-            disable_web_page_preview=True,
+        chunks_sent = await lpl_service.run_lpl_call_scenario(
+            bot=bot,
+            chat_id=chat_id,
+            topic_id=topic_id,
+            members=members,
         )
         logger.info(
-            "LPL auto-tag sent to chat=%s topic=%s members=%s",
+            "LPL auto-tag completed: chat=%s topic=%s members=%s chunks=%s",
             chat_id,
             topic_id,
             len(members),
+            chunks_sent,
         )
     except Exception:
         logger.exception("LPL auto-tag send failed chat=%s topic=%s", chat_id, topic_id)

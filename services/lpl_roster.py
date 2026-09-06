@@ -1,8 +1,9 @@
-from __future__ import annotations
-
+import asyncio
 import html
 import logging
+import random
 import re
+from typing import Sequence
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,14 @@ _ZWSP = "\u200b"
 DEFAULT_LPL_REMINDER = (
     "Напоминание❗️\n"
     "Отыграй ЛПЛ❗️"
+)
+
+# Pool of 40 diverse emojis for Zazyvala-style tagging
+EMOJIS: tuple[str, ...] = (
+    "🎭", "🥪", "🚴", "⚽️", "🏀", "🎮", "🔥", "⚡️", "🚀", "🎯",
+    "🏆", "🥇", "🥊", "🧩", "🎲", "🎺", "🎸", "🎨", "🎪", "🦁",
+    "🐯", "🦅", "🐺", "🍕", "🍔", "🍿", "🍩", "🍣", "🌮", "💣",
+    "🛡", "⚔️", "🔱", "💎", "👑", "🔮", "🧿", "🎁", "🎈", "🌟",
 )
 
 
@@ -89,6 +98,77 @@ def format_roster_text(members: list[LplRosterMember]) -> str:
         resolved = " · id есть" if m.tg_id else ""
         lines.append(f"• {tag}{resolved}")
     return "\n".join(lines)
+
+
+def chunk_members(members: Sequence[LplRosterMember], batch_size: int = 4) -> list[list[LplRosterMember]]:
+    """Split roster list dynamically into batches of batch_size (default 4)."""
+    return [list(members[i : i + batch_size]) for i in range(0, len(members), batch_size)]
+
+
+def format_chunk_emoji_html(chunk: Sequence[LplRosterMember], emoji_offset: int = 0) -> str:
+    """Format a chunk of 4 members into an HTML string of emoji links."""
+    links: list[str] = []
+    for idx, m in enumerate(chunk):
+        emoji = EMOJIS[(emoji_offset + idx) % len(EMOJIS)]
+        if m.tg_id:
+            href = f"tg://user?id={m.tg_id}"
+        elif m.username:
+            href = f"https://t.me/{m.username}"
+        else:
+            continue
+        links.append(f'<a href="{href}">{emoji}</a>')
+    return " ".join(links)
+
+
+async def run_lpl_call_scenario(
+    bot,
+    chat_id: int,
+    topic_id: int | None,
+    members: Sequence[LplRosterMember],
+) -> int:
+    """
+    Executes Zazyvala-style LPL call scenario:
+    1. Send "📣 Запущен призыв LPL!"
+    2. Loop over 4-member chunks, sending emoji links (sleep 0.4s between to avoid FloodWait)
+    3. Send "Призыв окончен."
+    """
+    if not members:
+        return 0
+
+    chunks = chunk_members(members, batch_size=4)
+
+    # Step 1: Start message
+    await bot.send_message(
+        chat_id=chat_id,
+        text="📣 Запущен призыв LPL!",
+        message_thread_id=topic_id if topic_id else None,
+        disable_web_page_preview=True,
+    )
+
+    # Step 2: Send chunks
+    emoji_offset = 0
+    for chunk in chunks:
+        await asyncio.sleep(0.4)
+        chunk_text = format_chunk_emoji_html(chunk, emoji_offset=emoji_offset)
+        emoji_offset += len(chunk)
+        if chunk_text:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=chunk_text,
+                message_thread_id=topic_id if topic_id else None,
+                disable_web_page_preview=True,
+            )
+
+    # Step 3: End message
+    await asyncio.sleep(0.4)
+    await bot.send_message(
+        chat_id=chat_id,
+        text="Призыв окончен.",
+        message_thread_id=topic_id if topic_id else None,
+        disable_web_page_preview=True,
+    )
+
+    return len(chunks)
 
 
 def build_hidden_tags(members: list[LplRosterMember]) -> str:
