@@ -128,7 +128,7 @@ async def run_lpl_call_scenario(
 ) -> int:
     """
     Executes Zazyvala-style LPL call scenario:
-    1. Send "📣 Запущен призыв LPL!"
+    1. Send default reminder "Напоминание❗️\nОтыграй ЛПЛ❗️"
     2. Loop over 4-member chunks, sending emoji links (sleep 0.4s between to avoid FloodWait)
     3. Send "Призыв окончен."
     """
@@ -140,7 +140,7 @@ async def run_lpl_call_scenario(
     # Step 1: Start message
     await bot.send_message(
         chat_id=chat_id,
-        text="📣 Запущен призыв LPL!",
+        text=DEFAULT_LPL_REMINDER,
         message_thread_id=topic_id if topic_id else None,
         disable_web_page_preview=True,
     )
