@@ -184,6 +184,7 @@ async def start_new_season(session: AsyncSession) -> tuple[bool, str, int]:
     )
     session.add(new_season)
     await session.flush()
+    await backfill_participants(session, next_number)
     return True, f"Запущен новый сезон #{next_number}.", next_number
 
 
@@ -214,8 +215,13 @@ async def bootstrap_seasons(session: AsyncSession) -> None:
             await session.flush()
 
     season_number = current.number if current else settings.current_season
+    await backfill_participants(session, season_number)
+
+
+async def backfill_participants(session: AsyncSession, season: int) -> None:
+    """Add every registered player to the season (standings skip non-participants)."""
     users_result = await session.execute(
-        select(User).where(User.nickname.is_not(None))
+        select(User.id).where(User.nickname.is_not(None))
     )
-    for user in users_result.scalars().all():
-        await ensure_participant(session, user_id=user.id, season=season_number)
+    for user_id in users_result.scalars().all():
+        await ensure_participant(session, user_id=user_id, season=season)

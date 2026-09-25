@@ -6,11 +6,11 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Goal, Match, User
-from services.seasons import get_current_season
+from services.seasons import ensure_participant, get_current_season
 from services.users import get_user_by_nickname
 
 RESULT_RE = re.compile(
-    r"^/result_tova(?:@\w+)?\s+(\S+)\s+(\d+)\s*:\s*(\d+)\s+(\S+)\s*$",
+    r"^/(?:result_tova|result|res)(?:@\w+)?\s+(\S+)\s+(\d+)\s*[:\-—]\s*(\d+)\s+(\S+)\s*$",
     re.IGNORECASE,
 )
 SCORER_ITEM_RE = re.compile(r"^\s*(.+?)(?:\s*\((\d+)\))?\s*$")
@@ -24,12 +24,26 @@ def parse_result_command(text: str) -> tuple[str, int, int, str] | None:
     return nick1, int(s1), int(s2), nick2
 
 
-def parse_scorers_line(line: str) -> tuple[str, list[tuple[str, int]]] | None:
+def parse_scorers_line(
+    line: str,
+    expected_nick: str = "",
+    expected_score: int = -1,
+) -> tuple[str, list[tuple[str, int]]] | None:
     """
     Formats:
       nick — C. Ronaldo (5), Mbappé (3)
       nick - Messi, Neymar Jr.
+      or if score is 0: "0", "нет", "-", "—", "без голов", or just "nick"
     """
+    cleaned = (line or "").strip()
+
+    # If 0 goals expected, handle shortcut inputs
+    if expected_score == 0:
+        if cleaned.lower() in ("", "0", "нет", "-", "—", "none", "no", "без голов") or (
+            expected_nick and cleaned.lower() == expected_nick.lower()
+        ):
+            return expected_nick or "player", []
+
     if "—" in line:
         nick_part, scorers_part = line.split("—", 1)
     elif " - " in line:
@@ -37,11 +51,13 @@ def parse_scorers_line(line: str) -> tuple[str, list[tuple[str, int]]] | None:
     elif "-" in line:
         nick_part, scorers_part = line.split("-", 1)
     else:
+        if expected_score == 0 and expected_nick:
+            return expected_nick, []
         return None
 
     nickname = nick_part.strip()
-    if not nickname:
-        return None
+    if not nickname and expected_nick:
+        nickname = expected_nick
 
     items: list[tuple[str, int]] = []
     for raw in scorers_part.split(","):
@@ -55,6 +71,10 @@ def parse_scorers_line(line: str) -> tuple[str, list[tuple[str, int]]] | None:
         count = int(m.group(2)) if m.group(2) else 1
         if name and count > 0:
             items.append((name, count))
+
+    if expected_score == 0 and not items:
+        return nickname or expected_nick, []
+
     return nickname, items
 
 
@@ -224,6 +244,9 @@ async def admin_decide_match(
     if match.status != "pending_admin":
         return "wrong_status", match
     match.status = "confirmed" if approve else "rejected"
+    if approve:
+        for uid in (match.player1_id, match.player2_id):
+            await ensure_participant(session, user_id=uid, season=match.season)
     await session.flush()
     return match.status, match
 

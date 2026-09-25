@@ -80,6 +80,21 @@ async def resolve_target_user(
         if user:
             return user, None
 
+        try:
+            member = await bot.get_chat_member(chat_id=chat_id, user_id=f"@{clean}")
+            tg_id = member.user.id
+            first_name = member.user.first_name
+            user = await users_service.get_or_create_user(
+                session,
+                tg_id=tg_id,
+                username=member.user.username or clean,
+            )
+            if first_name and user.username is None:
+                user.username = member.user.username or clean
+            return user, None
+        except TelegramBadRequest:
+            return None, f"Не удалось найти пользователя @{clean} в этом чате."
+
         return None, (
             f"Пользователь @{clean} не найден в базе бота.\n"
             "Надёжный способ: reply на его сообщение + /ban|/mute.\n"

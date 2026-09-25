@@ -71,7 +71,7 @@ async def cmd_cancel_match(message: Message, session: AsyncSession) -> None:
     await message.answer("Не удалось отклонить матч.")
 
 
-@router.message(Command("result_tova"))
+@router.message(Command("result_tova", "result", "res"))
 async def cmd_result_tova(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if not await ensure_private(
         message,
@@ -98,7 +98,8 @@ async def cmd_result_tova(message: Message, state: FSMContext, session: AsyncSes
     if parsed is None:
         await message.answer(
             "Формат:\n"
-            "<code>/result_tova nickname1 8:2 nickname2</code>"
+            "<code>/result nickname1 8:2 nickname2</code> или\n"
+            "<code>/result_tova nickname1 8-2 nickname2</code>"
         )
         return
 
@@ -124,7 +125,7 @@ async def cmd_result_tova(message: Message, state: FSMContext, session: AsyncSes
                 card
                 + f"У вас уже есть незакрытый матч #{open_match.id}.\n"
                 "Подтвердите / отклоните кнопками ниже "
-                "или командой /cancel_match.",
+                "или отмените командой /cancel_match.",
                 reply_markup=tova_confirm_kb(open_match.id),
             )
         else:
@@ -155,8 +156,14 @@ async def cmd_result_tova(message: Message, state: FSMContext, session: AsyncSes
         nick2=nick2,
         submitter_tg_id=user.tg_id,
     )
+
+    hint_p1 = (
+        " (у игрока 0 голов — можете просто отправить «0» или «нет»)"
+        if score1 == 0
+        else ""
+    )
     await message.answer(
-        "Введите бомбардиров для <b>первого</b> игрока одной строкой:\n"
+        f"Введите бомбардиров для <b>первого</b> игрока ({nick1}){hint_p1}:\n"
         f"<code>{nick1} — Player (3), Player2 (2)</code>\n\n"
         "Отмена: /cancel"
     )
@@ -169,28 +176,44 @@ async def cmd_result_tova(message: Message, state: FSMContext, session: AsyncSes
     ~F.text.startswith("/"),
 )
 async def result_scorers_p1(message: Message, state: FSMContext) -> None:
-    parsed = parse_scorers_line(message.text or "")
+    data = await state.get_data()
+    nick1 = str(data["nick1"])
+    score1 = int(data["score1"])
+
+    parsed = parse_scorers_line(
+        message.text or "",
+        expected_nick=nick1,
+        expected_score=score1,
+    )
     if parsed is None:
         await message.answer(
             "Не удалось разобрать строку. Пример:\n"
-            "<code>Kawasaki2.0 — C. Ronaldo (5), Mbappé (3)</code>\n\n"
+            f"<code>{nick1} — C. Ronaldo (5), Mbappé (3)</code>\n\n"
             "Отмена: /cancel"
         )
         return
 
-    data = await state.get_data()
     nick, items = parsed
-    if nick.lower() != str(data["nick1"]).lower():
-        await message.answer(
-            f"Ник в начале строки должен быть <b>{data['nick1']}</b>."
-        )
-        return
+    if expected_nick := nick1:
+        if nick.lower() != expected_nick.lower():
+            await message.answer(
+                f"Ник в начале строки должен быть <b>{expected_nick}</b>."
+            )
+            return
 
     await state.update_data(scorers_p1=items)
     await state.set_state(ResultFSM.waiting_scorers_p2)
+
+    nick2 = str(data["nick2"])
+    score2 = int(data["score2"])
+    hint_p2 = (
+        " (у игрока 0 голов — можете просто отправить «0» или «нет»)"
+        if score2 == 0
+        else ""
+    )
     await message.answer(
-        "Введите бомбардиров для <b>второго</b> игрока:\n"
-        f"<code>{data['nick2']} — Messi, Neymar Jr.</code>\n\n"
+        f"Введите бомбардиров для <b>второго</b> игрока ({nick2}){hint_p2}:\n"
+        f"<code>{nick2} — Messi, Neymar Jr.</code>\n\n"
         "Отмена: /cancel"
     )
 
@@ -202,22 +225,30 @@ async def result_scorers_p1(message: Message, state: FSMContext) -> None:
     ~F.text.startswith("/"),
 )
 async def result_scorers_p2(message: Message, state: FSMContext) -> None:
-    parsed = parse_scorers_line(message.text or "")
+    data = await state.get_data()
+    nick2 = str(data["nick2"])
+    score2 = int(data["score2"])
+
+    parsed = parse_scorers_line(
+        message.text or "",
+        expected_nick=nick2,
+        expected_score=score2,
+    )
     if parsed is None:
         await message.answer(
             "Не удалось разобрать строку. Пример:\n"
-            "<code>Player2 — Messi, Neymar Jr.</code>\n\n"
+            f"<code>{nick2} — Messi, Neymar Jr.</code>\n\n"
             "Отмена: /cancel"
         )
         return
 
-    data = await state.get_data()
     nick, items = parsed
-    if nick.lower() != str(data["nick2"]).lower():
-        await message.answer(
-            f"Ник в начале строки должен быть <b>{data['nick2']}</b>."
-        )
-        return
+    if expected_nick := nick2:
+        if nick.lower() != expected_nick.lower():
+            await message.answer(
+                f"Ник в начале строки должен быть <b>{expected_nick}</b>."
+            )
+            return
 
     await state.update_data(scorers_p2=items)
     await state.set_state(ResultFSM.waiting_screenshot)

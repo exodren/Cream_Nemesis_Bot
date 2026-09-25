@@ -1,86 +1,88 @@
 #!/usr/bin/env python3
 """
 One-off script to import all members of a Telegram chat into local DB.
-Requires: Pyrogram (async client), access to API_ID/API_HASH and user that is a member of the chat.
+Requires: Pyrogram (async client) and valid Telegram API credentials.
 
-Run: python sync_chat_members.py
-
-The script will prompt for missing values.
+Usage:
+1) Fill API_ID, API_HASH and CHAT_ID below.
+2) Run: python sync_chat_members.py
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
-from typing import Optional
 
 from pyrogram import Client
 
 from db.base import async_session
 from services import users as users_service
 
+# Hardcode values for a one-off run.
+# For supergroups with topics, prefer the parent chat username or the real group ID,
+# not a forum topic/thread id.
+API_ID = 35720595
+API_HASH = "c911bbd51361466d45f5de40c4401096"
+CHAT_ID = -1003730057446  # e.g. "@CreamNemesis" or "-1001234567890"
+
 logger = logging.getLogger("sync_chat_members")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
-def _get_env_or_input(name: str, cast: Optional[type] = None) -> str:
-    val = os.getenv(name)
-    if val:
-        return val
-    prompt = f"{name}: "
-    raw = input(prompt).strip()
-    return raw
+async def _print_chat_candidates(app: Client) -> None:
+    logger.warning("Trying to detect valid chat peers from your dialogs...")
+    async for dialog in app.get_dialogs():
+        chat = dialog.chat
+        title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or ""
+        username = getattr(chat, "username", None)
+        if title:
+            print(f"TITLE={title!r} ID={chat.id} USERNAME={username}")
 
 
 async def main() -> None:
-    api_id = _get_env_or_input("API_ID")
-    api_hash = _get_env_or_input("API_HASH")
-    chat_id = _get_env_or_input("CHAT_ID")
-
-    # Basic validation / casts
-    try:
-        api_id = int(api_id)
-    except Exception:
-        logger.error("API_ID must be an integer")
-        return
-
-    if not api_hash:
-        logger.error("API_HASH is required")
-        return
-
-    # chat_id can be numeric or @username
-    # No cast here
+    if API_HASH == "PASTE_YOUR_API_HASH_HERE":
+        raise ValueError(
+            "Подставь реальные API_ID / API_HASH / CHAT_ID в constants в начале файла."
+        )
 
     logger.info("Starting Pyrogram client...")
     count = 0
 
-    # Use a short session name — no persistent session data required for one-off run.
-    app = Client("sync_members_oneoff", api_id=api_id, api_hash=api_hash)
+    app = Client("sync_members_oneoff", api_id=API_ID, api_hash=API_HASH)
 
     async with app:
-        logger.info("Connected to Telegram — iterating members of %s", chat_id)
-        # Pyrogram provides an async iterator for get_chat_members
-        async for member in app.get_chat_members(chat_id):
-            user = member.user
-            if user is None:
-                continue
-            if getattr(user, "is_bot", False):
-                continue
+        logger.info("Connected to Telegram — iterating members of %s", CHAT_ID)
+        try:
+            async for member in app.get_chat_members(CHAT_ID):
+                user = member.user
+                if user is None:
+                    continue
+                if getattr(user, "is_bot", False):
+                    continue
 
-            try:
-                async with async_session() as session:
-                    # Use existing service which performs get_or_create semantics
-                    await users_service.get_or_create_user(
-                        session,
-                        tg_id=user.id,
-                        username=user.username,
+                try:
+                    async with async_session() as session:
+                        await users_service.get_or_create_user(
+                            session,
+                            tg_id=user.id,
+                            username=user.username,
+                        )
+                        await session.commit()
+                    count += 1
+                    if count % 50 == 0:
+                        logger.info("Imported %d members so far...", count)
+                except Exception:
+                    logger.exception(
+                        "Failed to import user %s (%s)",
+                        getattr(user, "id", None),
+                        getattr(user, "username", None),
                     )
-                    await session.commit()
-                count += 1
-                if count % 50 == 0:
-                    logger.info("Imported %d members so far...", count)
-            except Exception as exc:  # pragma: no cover - one-off script
-                logger.exception("Failed to import user %s (%s): %s", getattr(user, 'id', None), getattr(user, 'username', None), exc)
+        except ValueError as exc:
+            logger.error(
+                "Peer id invalid: %s. Use parent chat username or real chat ID, not a forum topic id. Example: '@your_group_username' or '-1001234567890'.",
+                exc,
+            )
+            await _print_chat_candidates(app)
+            raise
 
     logger.info("Import finished. Импортировано %d участников.", count)
 

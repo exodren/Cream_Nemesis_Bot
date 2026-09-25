@@ -120,6 +120,26 @@ def format_chunk_emoji_html(chunk: Sequence[LplRosterMember], emoji_offset: int 
     return " ".join(links)
 
 
+async def _send_safe(bot, chat_id: int, text: str, topic_id: int | None) -> None:
+    """Send message with automatic RetryAfter flood wait handling."""
+    for attempt in range(3):
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                message_thread_id=topic_id if topic_id else None,
+                disable_web_page_preview=True,
+            )
+            return
+        except TelegramRetryAfter as e:
+            wait_time = e.retry_after + 1
+            logger.warning(
+                "Telegram FloodWait hit for chat %s. Waiting %s seconds before retry (attempt %s/3)",
+                chat_id, wait_time, attempt + 1
+            )
+            await asyncio.sleep(wait_time)
+
+
 async def run_lpl_call_scenario(
     bot,
     chat_id: int,
@@ -129,7 +149,7 @@ async def run_lpl_call_scenario(
     """
     Executes Zazyvala-style LPL call scenario:
     1. Send default reminder "Напоминание❗️\nОтыграй ЛПЛ❗️"
-    2. Loop over 4-member chunks, sending emoji links (sleep 0.4s between to avoid FloodWait)
+    2. Loop over 4-member chunks, sending emoji links (sleep 1.2s between to avoid FloodWait)
     3. Send "Призыв окончен."
     """
     if not members:
@@ -138,35 +158,20 @@ async def run_lpl_call_scenario(
     chunks = chunk_members(members, batch_size=4)
 
     # Step 1: Start message
-    await bot.send_message(
-        chat_id=chat_id,
-        text=DEFAULT_LPL_REMINDER,
-        message_thread_id=topic_id if topic_id else None,
-        disable_web_page_preview=True,
-    )
+    await _send_safe(bot, chat_id, DEFAULT_LPL_REMINDER, topic_id)
 
     # Step 2: Send chunks
     emoji_offset = 0
     for chunk in chunks:
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(1.2)
         chunk_text = format_chunk_emoji_html(chunk, emoji_offset=emoji_offset)
         emoji_offset += len(chunk)
         if chunk_text:
-            await bot.send_message(
-                chat_id=chat_id,
-                text=chunk_text,
-                message_thread_id=topic_id if topic_id else None,
-                disable_web_page_preview=True,
-            )
+            await _send_safe(bot, chat_id, chunk_text, topic_id)
 
     # Step 3: End message
-    await asyncio.sleep(0.4)
-    await bot.send_message(
-        chat_id=chat_id,
-        text="Призыв окончен.",
-        message_thread_id=topic_id if topic_id else None,
-        disable_web_page_preview=True,
-    )
+    await asyncio.sleep(1.2)
+    await _send_safe(bot, chat_id, "Призыв окончен.", topic_id)
 
     return len(chunks)
 
