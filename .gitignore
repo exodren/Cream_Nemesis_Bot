@@ -24,3 +24,14 @@ build/
 *.bak
 *.swp
 *.tmp
+
+# Telegram sessions & local scripts with secrets
+*.session
+*.session-journal
+shayton_mashina.py
+
+# Local tooling / notes
+.obsidian/
+vault/
+graphify-out/
+scratch/
