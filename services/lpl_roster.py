@@ -5,6 +5,8 @@ import random
 import re
 from typing import Sequence
 
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,7 +123,12 @@ def format_chunk_emoji_html(chunk: Sequence[LplRosterMember], emoji_offset: int 
 
 
 async def _send_safe(bot, chat_id: int, text: str, topic_id: int | None) -> None:
-    """Send message with automatic RetryAfter flood wait handling."""
+    """Send message with automatic RetryAfter flood wait handling.
+
+    - TelegramRetryAfter: waits the requested time and retries up to 3 times.
+    - TelegramBadRequest: logs the error and returns (don't crash the whole run).
+    - Other exceptions: re-raised to the caller.
+    """
     for attempt in range(3):
         try:
             await bot.send_message(
@@ -134,10 +141,19 @@ async def _send_safe(bot, chat_id: int, text: str, topic_id: int | None) -> None
         except TelegramRetryAfter as e:
             wait_time = e.retry_after + 1
             logger.warning(
-                "Telegram FloodWait hit for chat %s. Waiting %s seconds before retry (attempt %s/3)",
-                chat_id, wait_time, attempt + 1
+                "FloodWait for chat=%s topic=%s, waiting %ss (attempt %s/3)",
+                chat_id, topic_id, wait_time, attempt + 1,
             )
             await asyncio.sleep(wait_time)
+        except TelegramBadRequest as e:
+            logger.error(
+                "TelegramBadRequest sending to chat=%s topic=%s: %s",
+                chat_id, topic_id, e,
+            )
+            return  # Non-retryable — skip this message, don't crash the whole scenario
+    logger.error(
+        "Exhausted 3 retries due to FloodWait for chat=%s topic=%s", chat_id, topic_id
+    )
 
 
 async def run_lpl_call_scenario(

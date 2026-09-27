@@ -57,6 +57,7 @@ async def job_lpl_auto_tag(bot: Bot) -> None:
         logger.info("LPL auto-tag skipped: roster empty")
         return
 
+    logger.info("LPL auto-tag starting: chat=%s topic=%s members=%s", chat_id, topic_id, len(members))
     try:
         chunks_sent = await lpl_service.run_lpl_call_scenario(
             bot=bot,
@@ -73,7 +74,6 @@ async def job_lpl_auto_tag(bot: Bot) -> None:
         )
     except Exception:
         logger.exception("LPL auto-tag send failed chat=%s topic=%s", chat_id, topic_id)
-        raise
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
