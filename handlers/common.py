@@ -41,7 +41,7 @@ async def cmd_help(message: Message) -> None:
     await message.answer(HELP_TEXT, reply_markup=main_menu_kb(is_admin=is_admin))
 
 
-@router.message(Command("topicid", "chatid"))
+@router.message(Command("topicid", "chatid", "topic_id"))
 async def cmd_topicid(message: Message) -> None:
     chat_id = message.chat.id
     thread_id = message.message_thread_id
