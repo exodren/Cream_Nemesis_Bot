@@ -1,5 +1,6 @@
 aiogram>=3.13,<4
-sqlalchemy>=2.0,<3
+sqlalchemy[asyncio]>=2.0,<3
+greenlet>=3.0
 aiosqlite>=0.20
 Pillow>=10.0
 python-dotenv>=1.0
