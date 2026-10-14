@@ -41,25 +41,19 @@ async def cmd_help(message: Message) -> None:
     await message.answer(HELP_TEXT, reply_markup=main_menu_kb(is_admin=is_admin))
 
 
-@router.message(Command("topicid", "chatid", "topic_id"))
+@router.message(Command("topicid", "topic_id"))
 async def cmd_topicid(message: Message) -> None:
-    chat_id = message.chat.id
     thread_id = message.message_thread_id
-    c_seg = telegram_c_id(chat_id)
-    lines = [
-        f"<b>MAIN_CHAT_ID</b> = <code>{chat_id}</code>",
-        f"Сегмент ссылки t.me/c/ = <code>{c_seg}</code>",
-    ]
     if thread_id:
-        lines.append(f"<b>ID темы</b> (TOPIC_…) = <code>{thread_id}</code>")
-        lines.append(f"Ссылка: https://t.me/c/{c_seg}/{thread_id}")
-        lines.append("\nПропиши этот ID в .env и перезапусти бота.")
+        await message.answer(f"<code>{thread_id}</code>")
     else:
-        lines.append(
-            "\nЭто не тема форума (или General).\n"
-            "Открой нужную тему чата и снова отправь /topicid."
-        )
-    await message.answer("\n".join(lines))
+        await message.answer("Это не тема форума (General).")
+
+
+@router.message(Command("chatid", "chat_id"))
+async def cmd_chatid(message: Message) -> None:
+    await message.answer(f"<code>{message.chat.id}</code>")
+
 
 
 @router.message(Command("cancel"), StateFilter(any_state))
