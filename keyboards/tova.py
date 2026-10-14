@@ -91,3 +91,27 @@ def tova_archive_season_kb(season: int) -> InlineKeyboardMarkup:
         ],
         back_to="menu:tova:archive",
     )
+
+
+def challenge_kb(challenge_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Принять",
+                    callback_data=f"challenge:accept:{challenge_id}",
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отклонить",
+                    callback_data=f"challenge:decline:{challenge_id}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🚫 Отменить вызов",
+                    callback_data=f"challenge:cancel:{challenge_id}",
+                ),
+            ],
+        ]
+    )
+

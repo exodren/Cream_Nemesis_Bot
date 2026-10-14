@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import User
+from db.models import Challenge, User
 
 QUEUE_TTL = timedelta(minutes=15)
 
@@ -41,8 +41,15 @@ async def enqueue_or_match(
             return "already_queued", None
         await leave_queue(session, user)
 
-    # Find another waiting player (not self, with nickname, not expired)
+    # Find another waiting player (not self, with nickname, not expired, not in pending duel)
     cutoff = _utcnow() - QUEUE_TTL
+    active_duelist_challengers = select(Challenge.challenger_id).where(
+        Challenge.status == "pending"
+    )
+    active_duelist_targets = select(Challenge.target_id).where(
+        Challenge.status == "pending"
+    )
+
     result = await session.execute(
         select(User)
         .where(
@@ -52,6 +59,8 @@ async def enqueue_or_match(
             User.is_banned.is_(False),
             User.queue_at.is_not(None),
             User.queue_at >= cutoff,
+            User.id.not_in(active_duelist_challengers),
+            User.id.not_in(active_duelist_targets),
         )
         .order_by(User.queue_at.asc())
         .limit(1)

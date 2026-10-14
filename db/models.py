@@ -155,3 +155,25 @@ class LplRosterMember(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class Challenge(Base):
+    """Direct 1v1 challenge between two players in chat via /go_tova reply."""
+
+    __tablename__ = "challenges"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    challenger_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    target_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    message_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    # pending | accepted | declined | cancelled
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+    challenger: Mapped["User"] = relationship(foreign_keys=[challenger_id])
+    target: Mapped["User"] = relationship(foreign_keys=[target_id])
+
