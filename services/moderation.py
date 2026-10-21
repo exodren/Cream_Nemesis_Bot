@@ -1,16 +1,25 @@
-from __future__ import annotations
-
+import asyncio
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import ChatPermissions
+from aiogram.types import (
+    ChatMemberAdministrator,
+    ChatMemberOwner,
+    ChatPermissions,
+)
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import User, Warning
+from config import get_settings
+from db.base import async_session
+from db.models import MutedAdmin, User, Warning
 from services import users as users_service
+
+logger = logging.getLogger(__name__)
 
 RIGHTS_ERROR = (
     "Недостаточно прав. Сделайте бота админом с правом "
@@ -277,3 +286,357 @@ async def safe_unmute(bot: Bot, chat_id: int, user_id: int) -> tuple[bool, str |
         return False, _api_error(exc)
     except Exception as exc:  # noqa: BLE001
         return False, f"Ошибка снятия мута: {exc}"
+
+
+DEMOTE_PROMOTION_KWARGS = {
+    "is_anonymous": False,
+    "can_manage_chat": False,
+    "can_delete_messages": False,
+    "can_manage_video_chats": False,
+    "can_restrict_members": False,
+    "can_promote_members": False,
+    "can_change_info": False,
+    "can_invite_users": False,
+    "can_post_stories": False,
+    "can_edit_stories": False,
+    "can_delete_stories": False,
+    "can_post_messages": False,
+    "can_edit_messages": False,
+    "can_pin_messages": False,
+    "can_manage_topics": False,
+}
+
+
+def extract_admin_permissions(member: ChatMemberAdministrator) -> dict[str, bool]:
+    return {
+        "is_anonymous": bool(getattr(member, "is_anonymous", False)),
+        "can_manage_chat": bool(getattr(member, "can_manage_chat", False)),
+        "can_delete_messages": bool(getattr(member, "can_delete_messages", False)),
+        "can_manage_video_chats": bool(getattr(member, "can_manage_video_chats", False)),
+        "can_restrict_members": bool(getattr(member, "can_restrict_members", False)),
+        "can_promote_members": bool(getattr(member, "can_promote_members", False)),
+        "can_change_info": bool(getattr(member, "can_change_info", False)),
+        "can_invite_users": bool(getattr(member, "can_invite_users", False)),
+        "can_post_stories": bool(getattr(member, "can_post_stories", False)),
+        "can_edit_stories": bool(getattr(member, "can_edit_stories", False)),
+        "can_delete_stories": bool(getattr(member, "can_delete_stories", False)),
+        "can_post_messages": bool(getattr(member, "can_post_messages", False)),
+        "can_edit_messages": bool(getattr(member, "can_edit_messages", False)),
+        "can_pin_messages": bool(getattr(member, "can_pin_messages", False)),
+        "can_manage_topics": bool(getattr(member, "can_manage_topics", False)),
+    }
+
+
+async def check_moderation_rights(
+    bot: Bot,
+    chat_id: int,
+    *,
+    initiator_id: int,
+    initiator_username: str | None,
+    target_id: int,
+    target_username: str | None,
+) -> tuple[bool, str | None, ChatMemberAdministrator | None]:
+    """
+    Checks hierarchy and immunity according to role model.
+    Returns: (can_punish, error_message, target_admin_obj_if_admin)
+    """
+    settings = get_settings()
+
+    # 1. Target immunity (Super-Admin)
+    if settings.is_super_admin(target_id, target_username):
+        return False, "Ошибка: У данного пользователя абсолютный иммунитет.", None
+
+    target_chat_member = None
+    try:
+        target_chat_member = await asyncio.wait_for(
+            bot.get_chat_member(chat_id=chat_id, user_id=target_id),
+            timeout=8.0,
+        )
+    except Exception as e:
+        logger.debug("Could not get chat member for %s in %s: %s", target_id, chat_id, e)
+
+    # Chat owner has absolute immunity
+    if isinstance(target_chat_member, ChatMemberOwner) or (
+        target_chat_member and getattr(target_chat_member, "status", "") == "creator"
+    ):
+        return False, "Ошибка: У данного пользователя абсолютный иммунитет.", None
+
+    # 2. Check if target is junior admin (chat admin or bot admin)
+    is_admin_member = isinstance(target_chat_member, ChatMemberAdministrator)
+    is_config_admin = settings.is_admin(target_id, target_username)
+
+    if is_admin_member or is_config_admin:
+        # Check initiator status
+        if not settings.is_super_admin(initiator_id, initiator_username):
+            return False, "Ошибка: Недостаточно прав для наказания администратора.", None
+
+        # Initiator is super-admin, target is junior admin
+        return True, None, target_chat_member if is_admin_member else None
+
+    # Target is regular user
+    return True, None, None
+
+
+async def is_admin_muted(session: AsyncSession, chat_id: int, user_id: int) -> bool:
+    result = await session.execute(
+        select(MutedAdmin.id)
+        .where(
+            MutedAdmin.chat_id == chat_id,
+            MutedAdmin.user_id == user_id,
+            MutedAdmin.is_active.is_(True),
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def mute_junior_admin(
+    bot: Bot,
+    session: AsyncSession,
+    *,
+    chat_id: int,
+    target_id: int,
+    target_username: str | None,
+    target_admin: ChatMemberAdministrator | None,
+    minutes: int,
+    muted_by_id: int,
+) -> tuple[bool, str | None]:
+    """
+    Step 3.1: Save permissions.
+    Step 3.2: Promote with all False (demote admin).
+    Step 3.3: Restrict chat member (mute).
+    Step 3.4: Schedule unmute task to restore rights.
+    """
+    saved_permissions = (
+        extract_admin_permissions(target_admin)
+        if target_admin
+        else {
+            "can_manage_chat": True,
+            "can_delete_messages": True,
+            "can_restrict_members": True,
+            "can_invite_users": True,
+            "can_pin_messages": True,
+        }
+    )
+    custom_title = target_admin.custom_title if target_admin else None
+
+    # Step 3.2: Demote admin in Telegram chat
+    try:
+        await asyncio.wait_for(
+            bot.promote_chat_member(
+                chat_id=chat_id,
+                user_id=target_id,
+                **DEMOTE_PROMOTION_KWARGS,
+            ),
+            timeout=8.0,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError) as exc:
+        msg = getattr(exc, "message", None) or str(exc)
+        logger.warning("Failed to demote admin %s in chat %s: %s", target_id, chat_id, msg)
+        return False, (
+            f"Не удалось снять права администратора.\n"
+            f"Telegram: {msg}\n"
+            "Убедитесь, что у бота включено право «Назначение администраторов» "
+            "и бот находится выше этого администратора в списке."
+        )
+    except Exception as exc:
+        return False, f"Ошибка снятия прав администратора: {exc}"
+
+    # Step 3.3: Restrict chat member
+    until = datetime.now(timezone.utc) + timedelta(minutes=max(1, minutes))
+    try:
+        await asyncio.wait_for(
+            bot.restrict_chat_member(
+                chat_id=chat_id,
+                user_id=target_id,
+                permissions=MUTE_PERMISSIONS,
+                until_date=until,
+                use_independent_chat_permissions=True,
+            ),
+            timeout=8.0,
+        )
+    except Exception as exc:
+        # Rollback: restore admin rights if restrict failed
+        try:
+            await bot.promote_chat_member(chat_id=chat_id, user_id=target_id, **saved_permissions)
+        except Exception:
+            pass
+        return False, f"Ошибка наложения ограничений: {exc}"
+
+    # Step 3.1: Save to database
+    muted_rec = MutedAdmin(
+        chat_id=chat_id,
+        user_id=target_id,
+        username=target_username,
+        permissions_json=json.dumps(saved_permissions),
+        custom_title=custom_title,
+        muted_by_id=muted_by_id,
+        unmute_at=until,
+        is_active=True,
+    )
+    session.add(muted_rec)
+    await session.commit()
+
+    # Step 3.4: Schedule auto unmute and restore
+    job_id = f"unmute_admin_{chat_id}_{target_id}"
+    try:
+        from services.scheduler import scheduler
+
+        scheduler.add_job(
+            job_unmute_admin_auto,
+            "date",
+            run_date=until,
+            args=[chat_id, target_id, target_username],
+            id=job_id,
+            replace_existing=True,
+            coalesce=True,
+        )
+    except Exception as e:
+        logger.exception("Failed to schedule unmute job %s: %s", job_id, e)
+
+    return True, None
+
+
+async def restore_admin_rights(
+    bot: Bot,
+    session: AsyncSession,
+    chat_id: int,
+    user_id: int,
+    *,
+    reason: str = "manual",
+) -> tuple[bool, str | None]:
+    """
+    Unmutes user, restores saved admin permissions, updates DB record and cancels scheduled job.
+    """
+    result = await session.execute(
+        select(MutedAdmin)
+        .where(
+            MutedAdmin.chat_id == chat_id,
+            MutedAdmin.user_id == user_id,
+            MutedAdmin.is_active.is_(True),
+        )
+        .order_by(MutedAdmin.id.desc())
+        .limit(1)
+    )
+    record = result.scalar_one_or_none()
+
+    # 1. Unrestrict in chat
+    try:
+        await asyncio.wait_for(
+            bot.restrict_chat_member(
+                chat_id=chat_id,
+                user_id=user_id,
+                permissions=UNMUTE_PERMISSIONS,
+                use_independent_chat_permissions=True,
+            ),
+            timeout=8.0,
+        )
+    except Exception as exc:
+        logger.warning("Unrestrict failed for %s in %s: %s", user_id, chat_id, exc)
+
+    # 2. Restore admin rights if we have saved record
+    if record and record.permissions_json:
+        try:
+            permissions = json.loads(record.permissions_json)
+        except Exception:
+            permissions = {}
+
+        try:
+            await asyncio.wait_for(
+                bot.promote_chat_member(chat_id=chat_id, user_id=user_id, **permissions),
+                timeout=8.0,
+            )
+            if record.custom_title:
+                try:
+                    await bot.set_chat_administrator_custom_title(
+                        chat_id=chat_id,
+                        user_id=user_id,
+                        custom_title=record.custom_title,
+                    )
+                except Exception:
+                    pass
+        except Exception as exc:
+            logger.warning("Promote failed when restoring %s in %s: %s", user_id, chat_id, exc)
+            return False, f"Ошибка восстановления прав администратора: {exc}"
+
+        record.is_active = False
+        await session.commit()
+
+    # Cancel scheduled job if any
+    try:
+        from services.scheduler import scheduler
+
+        job_id = f"unmute_admin_{chat_id}_{user_id}"
+        if scheduler.get_job(job_id):
+            scheduler.remove_job(job_id)
+    except Exception:
+        pass
+
+    return True, None
+
+
+async def job_unmute_admin_auto(chat_id: int, user_id: int, username: str | None) -> None:
+    from services.scheduler import get_bot
+
+    bot = get_bot()
+    if not bot:
+        logger.error("Auto unmute job failed: bot instance not available")
+        return
+
+    async with async_session() as session:
+        ok, err = await restore_admin_rights(bot, session, chat_id, user_id, reason="expired")
+        if ok:
+            mention = f"@{username}" if username else f"ID {user_id}"
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Мут администратора {mention} истек. Права восстановлены.",
+                )
+            except Exception as e:
+                logger.warning("Failed to send unmute notification to chat %s: %s", chat_id, e)
+        else:
+            logger.error("Auto unmute failed for %s in %s: %s", user_id, chat_id, err)
+
+
+async def restore_pending_muted_admins(bot: Bot) -> None:
+    """Check for active muted admins on bot startup and resume schedules or restore immediately."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(MutedAdmin).where(MutedAdmin.is_active.is_(True))
+        )
+        records = result.scalars().all()
+        now = datetime.now(timezone.utc)
+
+        for rec in records:
+            unmute_at = rec.unmute_at
+            if unmute_at.tzinfo is None:
+                unmute_at = unmute_at.replace(tzinfo=timezone.utc)
+
+            if unmute_at <= now:
+                await restore_admin_rights(bot, session, rec.chat_id, rec.user_id, reason="expired")
+                mention = f"@{rec.username}" if rec.username else f"ID {rec.user_id}"
+                try:
+                    await bot.send_message(
+                        chat_id=rec.chat_id,
+                        text=f"Мут администратора {mention} истек. Права восстановлены.",
+                    )
+                except Exception:
+                    pass
+            else:
+                job_id = f"unmute_admin_{rec.chat_id}_{rec.user_id}"
+                from services.scheduler import scheduler
+
+                try:
+                    scheduler.add_job(
+                        job_unmute_admin_auto,
+                        "date",
+                        run_date=unmute_at,
+                        args=[rec.chat_id, rec.user_id, rec.username],
+                        id=job_id,
+                        replace_existing=True,
+                        coalesce=True,
+                    )
+                except Exception as e:
+                    logger.exception("Failed to re-register job %s: %s", job_id, e)
+        await session.commit()
+

@@ -76,8 +76,18 @@ async def job_lpl_auto_tag(bot: Bot) -> None:
         logger.exception("LPL auto-tag send failed chat=%s topic=%s", chat_id, topic_id)
 
 
+_global_bot: Bot | None = None
+
+
+def get_bot() -> Bot | None:
+    return _global_bot
+
+
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Register cron jobs. Call once before polling; shutdown on exit."""
+    global _global_bot
+    _global_bot = bot
+
     if scheduler.running:
         return scheduler
 
@@ -106,7 +116,12 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         "APScheduler started (tz=%s): warn expiry 03:00; LPL tags 12:00/16:00/20:00",
         _TZ,
     )
+
+    import asyncio
+    asyncio.create_task(mod.restore_pending_muted_admins(bot))
+
     return scheduler
+
 
 
 def shutdown_scheduler() -> None:

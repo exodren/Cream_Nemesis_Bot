@@ -157,6 +157,19 @@ async def cmd_warn(message: Message, session: AsyncSession) -> None:
             await message.answer(err or "Пользователь не найден.")
             return
 
+    chat_id = _target_chat_id(message)
+    can_moderate, err_msg, _ = await mod.check_moderation_rights(
+        message.bot,
+        chat_id,
+        initiator_id=message.from_user.id,
+        initiator_username=message.from_user.username,
+        target_id=user.tg_id,
+        target_username=user.username,
+    )
+    if not can_moderate:
+        await message.answer(err_msg or "Действие запрещено.")
+        return
+
     count = await mod.add_warning(
         session,
         user=user,
@@ -168,7 +181,6 @@ async def cmd_warn(message: Message, session: AsyncSession) -> None:
     mention = f"@{user.username}" if user.username else str(user.tg_id)
     nick = parsed.league_nickname or user.nickname
     nick_line = f" ({nick})" if nick else ""
-    chat_id = _target_chat_id(message)
     await message.answer(
         f"Предупреждение выдано {mention}{nick_line}.\n"
         f"Активных предупреждений: {count}/3"
@@ -205,6 +217,9 @@ async def cmd_unwarn(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("mute"))
 async def cmd_mute(message: Message, session: AsyncSession) -> None:
+    if not message.from_user:
+        return
+
     parts = (message.text or "").split()
     minutes = 60
     if message.reply_to_message:
@@ -223,9 +238,47 @@ async def cmd_mute(message: Message, session: AsyncSession) -> None:
         return
 
     chat_id = _target_chat_id(message)
+    can_moderate, err_msg, target_admin = await mod.check_moderation_rights(
+        message.bot,
+        chat_id,
+        initiator_id=message.from_user.id,
+        initiator_username=message.from_user.username,
+        target_id=user.tg_id,
+        target_username=user.username,
+    )
+    if not can_moderate:
+        await message.answer(err_msg or "Действие запрещено.")
+        return
+
+    mention = f"@{user.username}" if user.username else str(user.tg_id)
+
+    # Special handling for Junior Administrator mute
+    if target_admin is not None:
+        ok, api_err = await mod.mute_junior_admin(
+            message.bot,
+            session,
+            chat_id=chat_id,
+            target_id=user.tg_id,
+            target_username=user.username,
+            target_admin=target_admin,
+            minutes=minutes,
+            muted_by_id=message.from_user.id,
+        )
+        logger.info(
+            "admin_mute chat=%s user=%s min=%s ok=%s err=%s",
+            chat_id, user.tg_id, minutes, ok, api_err,
+        )
+        if ok:
+            await message.answer(
+                f"Администратор {mention} временно разжалован и отправлен в мут на {minutes} мин."
+            )
+        else:
+            await message.answer(api_err or "Не удалось замутить администратора.")
+        return
+
+    # Regular user mute
     ok, api_err = await mod.safe_mute(message.bot, chat_id, user.tg_id, minutes)
     logger.info("mute chat=%s user=%s min=%s ok=%s err=%s", chat_id, user.tg_id, minutes, ok, api_err)
-    mention = f"@{user.username}" if user.username else str(user.tg_id)
     if ok:
         await message.answer(f"{mention} в муте на {minutes} мин.")
     else:
@@ -241,9 +294,26 @@ async def cmd_unmute(message: Message, session: AsyncSession) -> None:
         return
 
     chat_id = _target_chat_id(message)
+    mention = f"@{user.username}" if user.username else str(user.tg_id)
+
+    # Check if target was a demoted muted admin
+    if await mod.is_admin_muted(session, chat_id, user.tg_id):
+        ok, api_err = await mod.restore_admin_rights(
+            message.bot,
+            session,
+            chat_id,
+            user.tg_id,
+            reason="manual",
+        )
+        if ok:
+            await message.answer(f"Мут досрочно снят с администратора {mention}. Права восстановлены.")
+        else:
+            await message.answer(api_err or "Не удалось восстановить права администратора.")
+        return
+
+    # Regular unmute
     ok, api_err = await mod.safe_unmute(message.bot, chat_id, user.tg_id)
     logger.info("unmute chat=%s user=%s ok=%s err=%s", chat_id, user.tg_id, ok, api_err)
-    mention = f"@{user.username}" if user.username else str(user.tg_id)
     if ok:
         await message.answer(f"Мут снят с {mention}.")
     else:
@@ -252,6 +322,9 @@ async def cmd_unmute(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("ban"))
 async def cmd_ban(message: Message, session: AsyncSession) -> None:
+    if not message.from_user:
+        return
+
     parts = (message.text or "").split()
     user, err = await _resolve_from_message(message, session, parts)
     if err or user is None:
@@ -259,6 +332,28 @@ async def cmd_ban(message: Message, session: AsyncSession) -> None:
         return
 
     chat_id = _target_chat_id(message)
+    can_moderate, err_msg, target_admin = await mod.check_moderation_rights(
+        message.bot,
+        chat_id,
+        initiator_id=message.from_user.id,
+        initiator_username=message.from_user.username,
+        target_id=user.tg_id,
+        target_username=user.username,
+    )
+    if not can_moderate:
+        await message.answer(err_msg or "Действие запрещено.")
+        return
+
+    if target_admin is not None:
+        try:
+            await message.bot.promote_chat_member(
+                chat_id=chat_id,
+                user_id=user.tg_id,
+                **mod.DEMOTE_PROMOTION_KWARGS,
+            )
+        except Exception as e:
+            logger.warning("Could not demote admin %s before ban: %s", user.tg_id, e)
+
     user.is_banned = True
     season = await seasons_service.get_current_season(session)
     await seasons_service.deactivate_participant_by_tg_id(
@@ -270,11 +365,12 @@ async def cmd_ban(message: Message, session: AsyncSession) -> None:
     logger.info("ban chat=%s user=%s ok=%s err=%s", chat_id, user.tg_id, ok, api_err)
     mention = f"@{user.username}" if user.username else str(user.tg_id)
     if ok:
-        await message.answer(f"{mention} забанен.")
+        await message.answer(f"{mention} заблокирован и исключён из текущего сезона.")
     else:
         await message.answer(
             f"Пользователь отмечен как забаненный, но кик в чате не выполнен.\n{api_err}"
         )
+
 
 
 @router.message(Command("unban"))

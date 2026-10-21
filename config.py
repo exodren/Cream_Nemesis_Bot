@@ -102,6 +102,8 @@ def _load_topics() -> dict[str, int]:
 class Settings:
     def __init__(self) -> None:
         self.bot_token = os.getenv("BOT_TOKEN", "").strip()
+        self.super_admin_ids = _parse_admin_ids(os.getenv("SUPER_ADMIN_IDS"))
+        self.super_admin_usernames = _parse_usernames(os.getenv("SUPER_ADMIN_USERNAMES"))
         self.admin_ids = _parse_admin_ids(os.getenv("ADMIN_IDS"))
         self.tova_admin_ids = _parse_admin_ids(
             os.getenv("TOVA_ADMIN_ID") or os.getenv("ZARIF_TG_ID")
@@ -141,6 +143,23 @@ class Settings:
     def table_template_path(self) -> Path:
         return self.assets_dir / "table_template.jpg"
 
+    def is_super_admin(self, user_id: int, username: str | None = None) -> bool:
+        if self.super_admin_ids and user_id in self.super_admin_ids:
+            return True
+        if username:
+            clean_username = username.lstrip("@").lower()
+            if clean_username in self.super_admin_usernames:
+                return True
+            # Default leaders immunity/full rights: Farrukh and Nikita
+            if clean_username in {"hushjournal", "fara1807", "ntarasov00"}:
+                return True
+        if not self.super_admin_ids and not self.super_admin_usernames:
+            if user_id in self.admin_ids:
+                return True
+            if username and username.lstrip("@").lower() in self.admin_usernames:
+                return True
+        return False
+
     def is_tova_admin(self, user_id: int, username: str | None = None) -> bool:
         if self.tova_admin_ids and user_id in self.tova_admin_ids:
             return True
@@ -150,11 +169,17 @@ class Settings:
         return False
 
     def is_admin(self, user_id: int, username: str | None = None) -> bool:
+        if self.is_super_admin(user_id, username):
+            return True
         if user_id in self.admin_ids:
             return True
         if username and username.lstrip("@").lower() in self.admin_usernames:
             return True
+        for role_names in self.league_admins.values():
+            if username and username.lstrip("@").lower() in [n.lower() for n in role_names]:
+                return True
         return False
+
 
 
 @lru_cache

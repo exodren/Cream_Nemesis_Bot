@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -176,4 +177,24 @@ class Challenge(Base):
 
     challenger: Mapped["User"] = relationship(foreign_keys=[challenger_id])
     target: Mapped["User"] = relationship(foreign_keys=[target_id])
+
+
+class MutedAdmin(Base):
+    """Stores demoted admin permissions during temporary mute."""
+
+    __tablename__ = "muted_admins"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    permissions_json: Mapped[str] = mapped_column(Text)
+    custom_title: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    muted_by_id: Mapped[int] = mapped_column(BigInteger)
+    muted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+    unmute_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
 
