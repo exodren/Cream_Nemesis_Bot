@@ -32,8 +32,6 @@ ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="mute", description="Замутить пользователя"),
     BotCommand(command="unmute", description="Снять мут с пользователя"),
     BotCommand(command="ban", description="Забанить пользователя"),
-    BotCommand(command="set_admin", description="Назначить ранг администратора (уровни 0-5)"),
-    BotCommand(command="addadmin", description="Добавить/обновить администратора"),
     BotCommand(command="season_manage", description="Управление сезонами TOVA"),
 ]
 

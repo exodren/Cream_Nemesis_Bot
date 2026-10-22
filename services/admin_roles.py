@@ -422,3 +422,39 @@ async def bootstrap_admin_roles(session: AsyncSession) -> None:
                 )
     await session.flush()
 
+
+
+async def max_assignable_level(session: AsyncSession, user_id: int, username: str | None) -> int | None:
+    """Highest level the initiator may assign: owners 5, level 4 → 3, others None."""
+    settings = get_settings()
+    level = await get_user_admin_level(session, user_id, username)
+    if user_id in settings.super_admin_ids or settings.is_super_admin(user_id, username) or level == 5:
+        return 5
+    return level - 1 if level == 4 else None
+
+
+async def list_admins(session: AsyncSession) -> list[AdminRole]:
+    result = await session.execute(
+        select(AdminRole).where(AdminRole.admin_level > 0).order_by(AdminRole.admin_level.desc())
+    )
+    return list(result.scalars())
+
+
+async def assign_admin_level(
+    session: AsyncSession, bot: Bot, chat_id: int, target: User, level: int, max_level: int
+) -> str:
+    """Check rights, save level to DB, sync Telegram rights, return report text."""
+    current = await get_user_admin_level(session, target.tg_id, target.username)
+    if level > max_level or current > max_level:
+        return f"❌ Недостаточно прав: вы можете управлять только уровнями 0–{max_level}."
+    await set_user_admin_level(session, user_id=target.tg_id, level=level, username=target.username)
+    await session.commit()
+    ok, err = await sync_telegram_admin_rights(bot, chat_id=chat_id, user_id=target.tg_id, level=level)
+    mention = f"@{target.username}" if target.username else f"ID: {target.tg_id}"
+    if level == 0:
+        msg = f"ℹ️ Пользователь {mention} разжалован до обычного участника (Уровень 0)."
+    else:
+        msg = f"✅ Пользователю {mention} назначен ранг: <b>{ROLE_NAMES[level]}</b> (Уровень {level})."
+    if ok:
+        return msg + "\nПрава администратора в Telegram-чате успешно синхронизированы."
+    return msg + f"\n\n⚠️ <i>Предупреждение по Telegram API:</i>\n{err}"

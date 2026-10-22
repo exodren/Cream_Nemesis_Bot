@@ -13,10 +13,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import get_settings
 from filters import AdminFilter
 from handlers.callback_ui import edit_screen
-from keyboards.admin_panel import admin_lpl_roster_kb, admin_panel_kb, admin_seasons_kb
+from keyboards.admin_panel import (
+    admin_level_kb,
+    admin_lpl_roster_kb,
+    admin_panel_kb,
+    admin_roles_kb,
+    admin_seasons_kb,
+)
 from keyboards.main import back_only_kb
+from services import admin_roles as roles_service
 from services import lpl_roster as lpl_service
 from services import moderation as mod
+from services import users as users_service
 from handlers.season_manage import season_manage_text
 from services.scheduler import job_lpl_auto_tag
 
@@ -40,6 +48,10 @@ ADMIN_HELP = (
 
 class LplRosterFSM(StatesGroup):
     waiting_roster = State()
+
+
+class AdminRolesFSM(StatesGroup):
+    waiting_target = State()
 
 
 @router.message(Command("admin"))
@@ -198,3 +210,105 @@ async def cb_lpl_tag_now(callback: CallbackQuery, session: AsyncSession) -> None
             admin_panel_kb(),
             answer=False,
         )
+
+
+async def _roles_screen(session: AsyncSession) -> str:
+    admins = await roles_service.list_admins(session)
+    lines = [
+        f"{a.admin_level} · {roles_service.ROLE_NAMES[a.admin_level]} — "
+        + (f"@{a.username}" if a.username else f"<code>{a.user_id}</code>")
+        for a in admins
+    ]
+    body = "\n".join(lines) or "Список пуст."
+    return f"<b>Администраторы</b>\n\n{body}\n\nНажмите на админа, чтобы изменить уровень."
+
+
+async def _max_level(callback_or_message, session: AsyncSession) -> int | None:
+    u = callback_or_message.from_user
+    return await roles_service.max_assignable_level(session, u.id, u.username)
+
+
+@router.callback_query(F.data == "admin:roles")
+async def cb_admin_roles(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    if await _max_level(callback, session) is None:
+        await callback.answer("Только для уровней 4–5.", show_alert=True)
+        return
+    await edit_screen(callback, await _roles_screen(session), admin_roles_kb(await roles_service.list_admins(session)))
+
+
+@router.callback_query(F.data == "admin:roles:add")
+async def cb_admin_roles_add(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if await _max_level(callback, session) is None:
+        await callback.answer("Только для уровней 4–5.", show_alert=True)
+        return
+    await state.set_state(AdminRolesFSM.waiting_target)
+    await edit_screen(
+        callback,
+        "<b>Назначение администратора</b>\n\n"
+        "Пришлите @username или Telegram ID, либо перешлите сообщение пользователя.\n\n"
+        "Отмена: /cancel",
+        back_only_kb("admin:roles"),
+    )
+
+
+@router.message(Command("cancel"), StateFilter(AdminRolesFSM.waiting_target))
+async def cancel_admin_roles(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Отменено.", reply_markup=admin_panel_kb())
+
+
+@router.message(AdminRolesFSM.waiting_target, F.chat.type == ChatType.PRIVATE)
+async def admin_roles_target(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    max_level = await _max_level(message, session)
+    if max_level is None:
+        await state.clear()
+        return
+    text = (message.text or "").strip()
+    target = None
+    fwd = getattr(message.forward_origin, "sender_user", None)
+    if fwd:
+        target = await users_service.get_or_create_user(session, tg_id=fwd.id, username=fwd.username)
+    elif text.isdigit():
+        target = await users_service.get_or_create_user(session, tg_id=int(text))
+    elif text.startswith("@"):
+        chat_id = get_settings().main_chat_id or message.chat.id
+        target, _ = await mod.resolve_target_user(session, bot=message.bot, chat_id=chat_id, username=text)
+    if target is None:
+        await message.answer(
+            "Пользователь не найден. Пришлите @username, Telegram ID или перешлите его сообщение "
+            "(если пересылка скрыта — попросите его написать боту /start). Отмена: /cancel"
+        )
+        return
+    await state.clear()
+    mention = f"@{target.username}" if target.username else str(target.tg_id)
+    await message.answer(f"Выберите уровень для {mention}:", reply_markup=admin_level_kb(target.tg_id, max_level))
+
+
+@router.callback_query(F.data.startswith("admin:roles:pick:"))
+async def cb_admin_roles_pick(callback: CallbackQuery, session: AsyncSession) -> None:
+    max_level = await _max_level(callback, session)
+    if max_level is None:
+        await callback.answer("Только для уровней 4–5.", show_alert=True)
+        return
+    user_id = int(callback.data.rsplit(":", 1)[1])
+    await edit_screen(callback, f"Выберите уровень для <code>{user_id}</code>:", admin_level_kb(user_id, max_level))
+
+
+@router.callback_query(F.data.startswith("admin:roles:set:"))
+async def cb_admin_roles_set(callback: CallbackQuery, session: AsyncSession) -> None:
+    max_level = await _max_level(callback, session)
+    if max_level is None:
+        await callback.answer("Только для уровней 4–5.", show_alert=True)
+        return
+    _, _, _, user_id, level = callback.data.split(":")
+    target = await users_service.get_or_create_user(session, tg_id=int(user_id))
+    chat_id = get_settings().main_chat_id or callback.from_user.id
+    report = await roles_service.assign_admin_level(
+        session, callback.bot, chat_id, target, int(level), max_level
+    )
+    await edit_screen(
+        callback,
+        report + "\n\n" + await _roles_screen(session),
+        admin_roles_kb(await roles_service.list_admins(session)),
+    )

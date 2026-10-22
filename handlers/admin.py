@@ -427,21 +427,10 @@ async def cmd_set_admin(message: Message, session: AsyncSession) -> None:
     if not message.from_user:
         return
 
-    initiator_id = message.from_user.id
-    initiator_username = message.from_user.username
-    settings = get_settings()
-
-    # 1. Initiator check: Owner from .env or admin level 4-5
-    initiator_level = await admin_roles_service.get_user_admin_level(
-        session, initiator_id, initiator_username
+    max_level = await admin_roles_service.max_assignable_level(
+        session, message.from_user.id, message.from_user.username
     )
-    is_owner = (
-        (initiator_id in settings.super_admin_ids)
-        or settings.is_super_admin(initiator_id, initiator_username)
-        or initiator_level == 5
-    )
-
-    if not is_owner and initiator_level < 4:
+    if max_level is None:
         await message.answer(
             "❌ Ошибка: Команда доступна только владельцам и главным администраторам (уровни 4–5)."
         )
@@ -529,43 +518,8 @@ async def cmd_set_admin(message: Message, session: AsyncSession) -> None:
         await message.answer("Ошибка: Уровень администратора должен быть от 0 до 5.")
         return
 
-    # Check assignment privileges: Level 4 cannot assign level >= 4
-    if not is_owner and initiator_level < 5:
-        if new_level >= initiator_level:
-            await message.answer(
-                f"Ошибка: Главный администратор ({initiator_level} уровня) может назначать только уровни ниже своего (от 0 до {initiator_level - 1})."
-            )
-            return
-
-    # Update DB
-    await admin_roles_service.set_user_admin_level(
-        session,
-        user_id=target_user.tg_id,
-        level=new_level,
-        username=target_user.username,
+    await message.answer(
+        await admin_roles_service.assign_admin_level(
+            session, message.bot, _target_chat_id(message), target_user, new_level, max_level
+        )
     )
-    await session.commit()
-
-    # Sync Telegram admin rights in the chat
-    chat_id = _target_chat_id(message)
-    tg_sync_ok, tg_err = await admin_roles_service.sync_telegram_admin_rights(
-        message.bot,
-        chat_id=chat_id,
-        user_id=target_user.tg_id,
-        level=new_level,
-    )
-
-    role_title = admin_roles_service.ROLE_NAMES.get(new_level, f"Уровень {new_level}")
-    mention = f"@{target_user.username}" if target_user.username else f"ID: {target_user.tg_id}"
-
-    if new_level == 0:
-        msg = f"ℹ️ Пользователь {mention} разжалован до обычного участника (Уровень 0)."
-    else:
-        msg = f"✅ Пользователю {mention} назначен ранг: <b>{role_title}</b> (Уровень {new_level})."
-
-    if tg_sync_ok:
-        msg += "\nПрава администратора в Telegram-чате успешно синхронизированы."
-    else:
-        msg += f"\n\n⚠️ <i>Предупреждение по Telegram API:</i>\n{tg_err}"
-
-    await message.answer(msg)
