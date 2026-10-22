@@ -198,3 +198,14 @@ class MutedAdmin(Base):
     unmute_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
 
+
+class AdminRole(Base):
+    """5-level hierarchical admin role table."""
+
+    __tablename__ = "admin_roles"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    admin_level: Mapped[int] = mapped_column(Integer, default=0, server_default="0", index=True)
+    saved_permissions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+

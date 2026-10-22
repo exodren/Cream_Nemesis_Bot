@@ -95,7 +95,10 @@ async def init_db() -> None:
 
     async with async_session() as session:
         await bootstrap_seasons(session)
+        from services.admin_roles import bootstrap_admin_roles
+        await bootstrap_admin_roles(session)
         await session.commit()
+
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

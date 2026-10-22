@@ -8,10 +8,13 @@ from aiogram import Router
 from aiogram.enums import ChatType
 from aiogram.filters import Command
 from aiogram.types import Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
+from db.models import AdminRole
 from filters import AdminFilter
+from services import admin_roles as admin_roles_service
 from services import moderation as mod
 from services import seasons as seasons_service
 from services import users as users_service
@@ -158,7 +161,8 @@ async def cmd_warn(message: Message, session: AsyncSession) -> None:
             return
 
     chat_id = _target_chat_id(message)
-    can_moderate, err_msg, _ = await mod.check_moderation_rights(
+    can_moderate, err_msg, *_ = await mod.check_moderation_rights(
+        session,
         message.bot,
         chat_id,
         initiator_id=message.from_user.id,
@@ -238,7 +242,8 @@ async def cmd_mute(message: Message, session: AsyncSession) -> None:
         return
 
     chat_id = _target_chat_id(message)
-    can_moderate, err_msg, target_admin = await mod.check_moderation_rights(
+    can_moderate, err_msg, target_admin, initiator_level, target_level = await mod.check_moderation_rights(
+        session,
         message.bot,
         chat_id,
         initiator_id=message.from_user.id,
@@ -253,7 +258,7 @@ async def cmd_mute(message: Message, session: AsyncSession) -> None:
     mention = f"@{user.username}" if user.username else str(user.tg_id)
 
     # Special handling for Junior Administrator mute
-    if target_admin is not None:
+    if target_admin is not None or target_level > 0:
         ok, api_err = await mod.mute_junior_admin(
             message.bot,
             session,
@@ -287,6 +292,9 @@ async def cmd_mute(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("unmute"))
 async def cmd_unmute(message: Message, session: AsyncSession) -> None:
+    if not message.from_user:
+        return
+
     parts = (message.text or "").split()
     user, err = await _resolve_from_message(message, session, parts)
     if err or user is None:
@@ -294,6 +302,19 @@ async def cmd_unmute(message: Message, session: AsyncSession) -> None:
         return
 
     chat_id = _target_chat_id(message)
+    can_moderate, err_msg, *_ = await mod.check_moderation_rights(
+        session,
+        message.bot,
+        chat_id,
+        initiator_id=message.from_user.id,
+        initiator_username=message.from_user.username,
+        target_id=user.tg_id,
+        target_username=user.username,
+    )
+    if not can_moderate:
+        await message.answer(err_msg or "Ошибка: Недостаточно прав для применения санкций к данному пользователю.")
+        return
+
     mention = f"@{user.username}" if user.username else str(user.tg_id)
 
     # Check if target was a demoted muted admin
@@ -306,7 +327,7 @@ async def cmd_unmute(message: Message, session: AsyncSession) -> None:
             reason="manual",
         )
         if ok:
-            await message.answer(f"Мут досрочно снят с администратора {mention}. Права восстановлены.")
+            await message.answer(f"Мут досрочно снят с администратора {mention}. Права полностью восстановлены.")
         else:
             await message.answer(api_err or "Не удалось восстановить права администратора.")
         return
@@ -332,7 +353,8 @@ async def cmd_ban(message: Message, session: AsyncSession) -> None:
         return
 
     chat_id = _target_chat_id(message)
-    can_moderate, err_msg, target_admin = await mod.check_moderation_rights(
+    can_moderate, err_msg, target_admin, *_ = await mod.check_moderation_rights(
+        session,
         message.bot,
         chat_id,
         initiator_id=message.from_user.id,
@@ -398,3 +420,152 @@ async def cmd_unban(message: Message, session: AsyncSession) -> None:
 async def cmd_warns(message: Message, session: AsyncSession) -> None:
     rows = await mod.list_active_warn_summary(session)
     await message.answer(mod.format_active_warns_text(rows))
+
+
+@router.message(Command("set_admin"))
+async def cmd_set_admin(message: Message, session: AsyncSession) -> None:
+    if not message.from_user:
+        return
+
+    initiator_id = message.from_user.id
+    initiator_username = message.from_user.username
+    settings = get_settings()
+
+    # 1. Initiator check: Owner from .env or admin level 4-5
+    initiator_level = await admin_roles_service.get_user_admin_level(
+        session, initiator_id, initiator_username
+    )
+    is_owner = (
+        (initiator_id in settings.super_admin_ids)
+        or settings.is_super_admin(initiator_id, initiator_username)
+        or initiator_level == 5
+    )
+
+    if not is_owner and initiator_level < 4:
+        await message.answer(
+            "❌ Ошибка: Команда доступна только владельцам и главным администраторам (уровни 4–5)."
+        )
+        return
+
+    # Parse arguments
+    parts = (message.text or "").split()
+    target_user = None
+    target_level_str: str | None = None
+
+    if message.reply_to_message and message.reply_to_message.from_user:
+        target_tg_user = message.reply_to_message.from_user
+        if target_tg_user.is_bot:
+            await message.answer("Нельзя назначить бота администратором.")
+            return
+        target_user = await users_service.get_or_create_user(
+            session,
+            tg_id=target_tg_user.id,
+            username=target_tg_user.username,
+        )
+        if len(parts) >= 2:
+            target_level_str = parts[1]
+        else:
+            await message.answer(
+                "Формат при ответе на сообщение: /set_admin <уровень 0-5>\n"
+                "Пример: /set_admin 2"
+            )
+            return
+    else:
+        if len(parts) < 3:
+            await message.answer(
+                "Формат команды:\n"
+                "/set_admin @username <уровень 0-5>\n"
+                "/set_admin <telegram_id> <уровень 0-5>\n"
+                "Или ответом на сообщение пользователя: /set_admin <уровень 0-5>\n\n"
+                "Шкала уровней:\n"
+                "5 — Владелец\n"
+                "4 — Главный администратор\n"
+                "3 — Старший модератор\n"
+                "2 — Модератор\n"
+                "1 — Младший модератор\n"
+                "0 — Обычный участник (разжалование)"
+            )
+            return
+
+        target_arg = parts[1]
+        target_level_str = parts[2]
+
+        if target_arg.isdigit():
+            target_user = await users_service.get_or_create_user(
+                session, tg_id=int(target_arg)
+            )
+        else:
+            clean_name = target_arg.lstrip("@")
+            target_user, _ = await mod.resolve_target_user(
+                session,
+                bot=message.bot,
+                chat_id=_target_chat_id(message),
+                username=clean_name,
+            )
+            if not target_user:
+                role_rec = (
+                    await session.execute(
+                        select(AdminRole).where(AdminRole.username.ilike(clean_name))
+                    )
+                ).scalar_one_or_none()
+                if role_rec:
+                    target_user = await users_service.get_or_create_user(
+                        session, tg_id=role_rec.user_id, username=role_rec.username
+                    )
+
+            if not target_user:
+                await message.answer(
+                    f"Пользователь {target_arg} не найден в базе данных бота.\n"
+                    "Попросите его написать /start боту или ответьте на его сообщение командой: /set_admin <уровень>"
+                )
+                return
+
+    if not target_level_str or not target_level_str.isdigit():
+        await message.answer("Ошибка: Уровень должен быть целым числом от 0 до 5.")
+        return
+
+    new_level = int(target_level_str)
+    if new_level < 0 or new_level > 5:
+        await message.answer("Ошибка: Уровень администратора должен быть от 0 до 5.")
+        return
+
+    # Check assignment privileges: Level 4 cannot assign level >= 4
+    if not is_owner and initiator_level < 5:
+        if new_level >= initiator_level:
+            await message.answer(
+                f"Ошибка: Главный администратор ({initiator_level} уровня) может назначать только уровни ниже своего (от 0 до {initiator_level - 1})."
+            )
+            return
+
+    # Update DB
+    await admin_roles_service.set_user_admin_level(
+        session,
+        user_id=target_user.tg_id,
+        level=new_level,
+        username=target_user.username,
+    )
+    await session.commit()
+
+    # Sync Telegram admin rights in the chat
+    chat_id = _target_chat_id(message)
+    tg_sync_ok, tg_err = await admin_roles_service.sync_telegram_admin_rights(
+        message.bot,
+        chat_id=chat_id,
+        user_id=target_user.tg_id,
+        level=new_level,
+    )
+
+    role_title = admin_roles_service.ROLE_NAMES.get(new_level, f"Уровень {new_level}")
+    mention = f"@{target_user.username}" if target_user.username else f"ID: {target_user.tg_id}"
+
+    if new_level == 0:
+        msg = f"ℹ️ Пользователь {mention} разжалован до обычного участника (Уровень 0)."
+    else:
+        msg = f"✅ Пользователю {mention} назначен ранг: <b>{role_title}</b> (Уровень {new_level})."
+
+    if tg_sync_ok:
+        msg += "\nПрава администратора в Telegram-чате успешно синхронизированы."
+    else:
+        msg += f"\n\n⚠️ <i>Предупреждение по Telegram API:</i>\n{tg_err}"
+
+    await message.answer(msg)
