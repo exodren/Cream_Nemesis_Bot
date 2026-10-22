@@ -26,7 +26,9 @@ from handlers.member_leave import router as member_leave_router
 from handlers.welcome import router as welcome_router
 from logging_setup import setup_logging
 from middlewares.db import DbSessionMiddleware
+from services.admin_roles import bootstrap_admin_roles
 from services.bot_commands import set_bot_commands
+from services.moderation import restore_pending_muted_admins
 from services.scheduler import setup_scheduler, shutdown_scheduler
 from services.tova_reviews import resend_pending_admin_cards
 
@@ -56,6 +58,11 @@ async def main() -> None:
     token = settings.require_token()
     await init_db()
     await _log_db_mode()
+
+    # Seed admin_roles from .env SUPER_ADMIN_IDS on every startup
+    async with async_session() as session:
+        await bootstrap_admin_roles(session)
+        await session.commit()
 
     bot = Bot(
         token=token,
@@ -88,6 +95,7 @@ async def main() -> None:
     await set_bot_commands(bot)
     await _resend_pending_tova_cards(bot)
     setup_scheduler(bot)
+    await restore_pending_muted_admins(bot)
     await bot.delete_webhook(drop_pending_updates=True)
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())

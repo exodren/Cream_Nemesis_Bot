@@ -33,6 +33,7 @@ ADMIN_COMMANDS = USER_COMMANDS + [
     BotCommand(command="unmute", description="Снять мут с пользователя"),
     BotCommand(command="ban", description="Забанить пользователя"),
     BotCommand(command="set_admin", description="Назначить ранг администратора (уровни 0-5)"),
+    BotCommand(command="addadmin", description="Добавить/обновить администратора"),
     BotCommand(command="season_manage", description="Управление сезонами TOVA"),
 ]
 
@@ -76,6 +77,18 @@ async def set_bot_commands(bot: Bot) -> None:
                     admin_id,
                     exc,
                 )
+
+    # Super admins also get full admin commands
+    for super_id in settings.super_admin_ids:
+        if super_id in settings.admin_ids:
+            continue  # already handled above
+        try:
+            await bot.set_my_commands(
+                ADMIN_COMMANDS,
+                scope=BotCommandScopeChat(chat_id=super_id),
+            )
+        except (TelegramBadRequest, TelegramForbiddenError) as exc:
+            logger.warning("set_my_commands PM super_admin=%s failed: %s", super_id, exc)
 
     logger.info(
         "Bot commands set: %s user cmds, %s admin ids",

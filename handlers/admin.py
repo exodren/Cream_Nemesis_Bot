@@ -312,7 +312,7 @@ async def cmd_unmute(message: Message, session: AsyncSession) -> None:
         target_username=user.username,
     )
     if not can_moderate:
-        await message.answer(err_msg or "Ошибка: Недостаточно прав для применения санкций к данному пользователю.")
+        await message.answer(err_msg or "Недостаточно прав")
         return
 
     mention = f"@{user.username}" if user.username else str(user.tg_id)
@@ -422,7 +422,7 @@ async def cmd_warns(message: Message, session: AsyncSession) -> None:
     await message.answer(mod.format_active_warns_text(rows))
 
 
-@router.message(Command("set_admin"))
+@router.message(Command("set_admin", "addadmin"))
 async def cmd_set_admin(message: Message, session: AsyncSession) -> None:
     if not message.from_user:
         return

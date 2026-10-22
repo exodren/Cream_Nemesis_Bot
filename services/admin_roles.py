@@ -339,7 +339,69 @@ async def clear_saved_admin_permissions(
 
 
 async def bootstrap_admin_roles(session: AsyncSession) -> None:
-    """Populate admin_roles from known users matching default usernames."""
+    """Seed admin_roles on startup.
+
+    Priority:
+    1. SUPER_ADMIN_IDS from .env  → level 5 (Владелец) — seeded by tg_id directly, no DB user needed.
+    2. SUPER_ADMIN_USERNAMES from .env → level 4 (Главный администратор) after the first ID in SUPER_ADMIN_IDS.
+       Actually: first entry → level 5, remaining entries in SUPER_ADMIN_USERNAMES → level 4.
+    3. DEFAULT_ADMIN_LEVELS matrix — username lookup in users table (backward-compat).
+    """
+    settings = get_settings()
+
+    # --- Seed from .env SUPER_ADMIN_IDS (by Telegram ID) ---
+    super_ids = settings.super_admin_ids  # list[int]
+    super_usernames = settings.super_admin_usernames  # list[str] (lowercase, no @)
+
+    for idx, tg_id in enumerate(super_ids):
+        result = await session.execute(
+            select(AdminRole).where(AdminRole.user_id == tg_id)
+        )
+        existing = result.scalar_one_or_none()
+        level = 5  # All IDs in SUPER_ADMIN_IDS get level 5 (immunity)
+        uname = super_usernames[idx] if idx < len(super_usernames) else None
+        if existing is None:
+            session.add(
+                AdminRole(
+                    user_id=tg_id,
+                    username=uname,
+                    admin_level=level,
+                )
+            )
+            logger.info("bootstrap: seeded admin_roles user_id=%s level=%s", tg_id, level)
+        else:
+            # Only upgrade level, never downgrade super admins
+            if existing.admin_level < level:
+                existing.admin_level = level
+                logger.info("bootstrap: upgraded admin_roles user_id=%s to level=%s", tg_id, level)
+            if uname and not existing.username:
+                existing.username = uname
+
+    # --- Seed remaining SUPER_ADMIN_USERNAMES as level 4 if not already seeded ---
+    # (usernames beyond the count of SUPER_ADMIN_IDS)
+    for idx in range(len(super_ids), len(super_usernames)):
+        uname = super_usernames[idx]
+        result_by_name = await session.execute(
+            select(AdminRole).where(AdminRole.username.ilike(uname))
+        )
+        existing = result_by_name.scalar_one_or_none()
+        if existing is None:
+            # Try to find tg_id from users table
+            user_res = await session.execute(
+                select(User).where(User.username.ilike(uname))
+            )
+            user = user_res.scalar_one_or_none()
+            if user and user.tg_id:
+                session.add(
+                    AdminRole(
+                        user_id=user.tg_id,
+                        username=uname,
+                        admin_level=4,
+                    )
+                )
+                logger.info("bootstrap: seeded admin_roles username=%s level=4", uname)
+
+    # --- Legacy: DEFAULT_ADMIN_LEVELS matrix (username lookup) ---
     for uname, default_level in DEFAULT_ADMIN_LEVELS.items():
         user_res = await session.execute(
             select(User).where(User.username.ilike(uname))
@@ -349,7 +411,8 @@ async def bootstrap_admin_roles(session: AsyncSession) -> None:
             role_res = await session.execute(
                 select(AdminRole).where(AdminRole.user_id == user.tg_id)
             )
-            if role_res.scalar_one_or_none() is None:
+            existing = role_res.scalar_one_or_none()
+            if existing is None:
                 session.add(
                     AdminRole(
                         user_id=user.tg_id,
@@ -358,3 +421,4 @@ async def bootstrap_admin_roles(session: AsyncSession) -> None:
                     )
                 )
     await session.flush()
+
