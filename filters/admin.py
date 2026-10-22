@@ -13,12 +13,14 @@ class AdminFilter(BaseFilter):
 
     By default:
     - Settings.is_admin or Settings.is_super_admin (ADMIN_IDS, ADMIN_USERNAMES, SUPER_ADMIN_IDS, SUPER_ADMIN_USERNAMES)
-    - Or admin_level >= 1 from DB (admin_roles table)
+    - Or admin_level >= min_level from DB (admin_roles table)
+    With min_level > 1 only super admins skip the DB check (e.g. admin panel: 4+).
     With strict_ids=True: only numeric ADMIN_IDS / SUPER_ADMIN_IDS (e.g. season management).
     """
 
-    def __init__(self, *, strict_ids: bool = False) -> None:
+    def __init__(self, *, strict_ids: bool = False, min_level: int = 1) -> None:
         self.strict_ids = strict_ids
+        self.min_level = min_level
 
     async def __call__(self, event: TelegramObject, session: AsyncSession | None = None) -> bool:
         user = None
@@ -32,15 +34,17 @@ class AdminFilter(BaseFilter):
             return user.id in settings.admin_ids or user.id in settings.super_admin_ids
 
         # Fast check against config
-        if settings.is_admin(user.id, user.username) or settings.is_super_admin(user.id, user.username):
+        if settings.is_super_admin(user.id, user.username) or (
+            self.min_level <= 1 and settings.is_admin(user.id, user.username)
+        ):
             return True
 
-        # Database role check (level >= 1)
+        # Database role check
         if session is not None:
             from services.admin_roles import get_user_admin_level
 
             level = await get_user_admin_level(session, user.id, user.username)
-            if level >= 1:
+            if level >= self.min_level:
                 return True
 
         return False

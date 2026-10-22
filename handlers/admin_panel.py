@@ -29,8 +29,8 @@ from handlers.season_manage import season_manage_text
 from services.scheduler import job_lpl_auto_tag
 
 router = Router(name="admin_panel")
-router.message.filter(AdminFilter())
-router.callback_query.filter(AdminFilter())
+router.message.filter(AdminFilter(min_level=4))
+router.callback_query.filter(AdminFilter(min_level=4))
 logger = logging.getLogger(__name__)
 
 ADMIN_HELP = (
@@ -41,6 +41,8 @@ ADMIN_HELP = (
     "<b>/mute</b> @user 60 · <b>/unmute</b>\n"
     "<b>/ban</b> · <b>/unban</b>\n"
     "<b>/pending_tova</b> — карточки на проверке\n\n"
+    "<b>Уровни:</b> 1–2 — мут · 3 — мут, варны · 4–5 — всё + админ-панель.\n"
+    "Санкции только к тем, у кого уровень ниже; 4–5 неприкосновенны.\n\n"
     "Варн автоматически сгорает через 30 дней.\n"
     "Теги ЛПЛ уходят в чат лиги в 12:00, 16:00 и 20:00 (Asia/Almaty)."
 )

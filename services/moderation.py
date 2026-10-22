@@ -337,15 +337,19 @@ async def check_moderation_rights(
     initiator_username: str | None,
     target_id: int,
     target_username: str | None,
+    min_level: int = 1,
 ) -> tuple[bool, str | None, ChatMemberAdministrator | None, int, int]:
     """
     Checks 5-level hierarchy and immunity according to role model.
+    min_level: lowest initiator level allowed to run this action (see admin_roles.MIN_LEVEL_*).
     Returns: (can_punish, error_message, target_admin_obj_if_admin, initiator_level, target_level)
     """
     # 1. Fetch initiator and target levels from DB / roles
     initiator_level = await admin_roles_service.get_user_admin_level(
         session, initiator_id, initiator_username
     )
+    if initiator_level < min_level:
+        return False, f"Недостаточно прав: команда доступна с уровня {min_level}.", None, initiator_level, 0
     target_level = await admin_roles_service.get_user_admin_level(
         session, target_id, target_username
     )

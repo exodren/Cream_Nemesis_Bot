@@ -150,9 +150,6 @@ class Settings:
             clean_username = username.lstrip("@").lower()
             if clean_username in self.super_admin_usernames:
                 return True
-            # Default leaders immunity/full rights: Farrukh and Nikita
-            if clean_username in {"hushjournal", "fara1807", "ntarasov00"}:
-                return True
         if not self.super_admin_ids and not self.super_admin_usernames:
             if user_id in self.admin_ids:
                 return True
@@ -175,9 +172,6 @@ class Settings:
             return True
         if username and username.lstrip("@").lower() in self.admin_usernames:
             return True
-        for role_names in self.league_admins.values():
-            if username and username.lstrip("@").lower() in [n.lower() for n in role_names]:
-                return True
         return False
 
 

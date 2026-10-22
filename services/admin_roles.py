@@ -12,21 +12,10 @@ from db.models import AdminRole, User
 
 logger = logging.getLogger(__name__)
 
-# Default role mapping per technical specification:
-# Уровень 5: Владелец (@Fara1807, @hushjournal)
-# Уровень 4: Главный администратор (@nTarasov00)
-# Уровень 3: Старший модератор (@FinrirX)
-# Уровень 2: Модератор (@B4knur)
-# Уровень 1: Младший модератор (@Azheke_GB)
-# Уровень 0: Обычный участник лиги
-DEFAULT_ADMIN_LEVELS: dict[str, int] = {
-    "fara1807": 5,
-    "hushjournal": 5,
-    "ntarasov00": 4,
-    "finrirx": 3,
-    "b4knur": 2,
-    "azheke_gb": 1,
-}
+# Minimum level per moderation action: 1-2 mute only, 3 + warns, 4-5 everything.
+MIN_LEVEL_MUTE = 1
+MIN_LEVEL_WARN = 3
+MIN_LEVEL_BAN = 4
 
 ROLE_NAMES: dict[int, str] = {
     5: "Владелец",
@@ -124,13 +113,6 @@ LEVEL_PERMISSIONS: dict[int, dict[str, bool]] = {
 }
 
 
-def get_default_level_for_username(username: str | None) -> int:
-    if not username:
-        return 0
-    clean = username.lstrip("@").lower()
-    return DEFAULT_ADMIN_LEVELS.get(clean, 0)
-
-
 async def get_user_admin_level(
     session: AsyncSession,
     user_id: int,
@@ -141,8 +123,7 @@ async def get_user_admin_level(
     Checks:
     1. admin_roles table by user_id
     2. admin_roles table by username
-    3. DEFAULT_ADMIN_LEVELS matrix
-    4. Settings SUPER_ADMIN_IDS / ADMIN_IDS
+    3. Settings SUPER_ADMIN_* → 5, ADMIN_IDS / ADMIN_USERNAMES → 1
     """
     settings = get_settings()
 
@@ -171,19 +152,8 @@ async def get_user_admin_level(
         if role_by_name is not None:
             return role_by_name.admin_level
 
-    # 4. Fallback to default matrix by username
-    level = get_default_level_for_username(username)
-    if level > 0:
-        new_rec = AdminRole(
-            user_id=user_id,
-            username=username.lstrip("@") if username else None,
-            admin_level=level,
-        )
-        session.add(new_rec)
-        await session.flush()
-        return level
-
-    # 5. Fallback to config settings
+    # 4. Fallback to config settings
+    level = 0
     if settings.is_super_admin(user_id, username):
         level = 5
     elif settings.is_admin(user_id, username):
@@ -344,9 +314,7 @@ async def bootstrap_admin_roles(session: AsyncSession) -> None:
     Priority:
     1. SUPER_ADMIN_IDS from .env  → level 5 (Владелец) — seeded by tg_id directly, no DB user needed.
     2. SUPER_ADMIN_USERNAMES from .env → level 4 (Главный администратор) after the first ID in SUPER_ADMIN_IDS.
-       Actually: first entry → level 5, remaining entries in SUPER_ADMIN_USERNAMES → level 4.
-    3. DEFAULT_ADMIN_LEVELS matrix — username lookup in users table (backward-compat).
-    """
+       Actually: first entry → level 5, remaining entries in SUPER_ADMIN_USERNAMES → level 4.    """
     settings = get_settings()
 
     # --- Seed from .env SUPER_ADMIN_IDS (by Telegram ID) ---
@@ -401,25 +369,6 @@ async def bootstrap_admin_roles(session: AsyncSession) -> None:
                 )
                 logger.info("bootstrap: seeded admin_roles username=%s level=4", uname)
 
-    # --- Legacy: DEFAULT_ADMIN_LEVELS matrix (username lookup) ---
-    for uname, default_level in DEFAULT_ADMIN_LEVELS.items():
-        user_res = await session.execute(
-            select(User).where(User.username.ilike(uname))
-        )
-        user = user_res.scalar_one_or_none()
-        if user and user.tg_id:
-            role_res = await session.execute(
-                select(AdminRole).where(AdminRole.user_id == user.tg_id)
-            )
-            existing = role_res.scalar_one_or_none()
-            if existing is None:
-                session.add(
-                    AdminRole(
-                        user_id=user.tg_id,
-                        username=user.username or uname,
-                        admin_level=default_level,
-                    )
-                )
     await session.flush()
 
 

@@ -169,6 +169,7 @@ async def cmd_warn(message: Message, session: AsyncSession) -> None:
         initiator_username=message.from_user.username,
         target_id=user.tg_id,
         target_username=user.username,
+        min_level=admin_roles_service.MIN_LEVEL_WARN,
     )
     if not can_moderate:
         await message.answer(err_msg or "Действие запрещено.")
@@ -204,12 +205,33 @@ async def cmd_warn(message: Message, session: AsyncSession) -> None:
             )
 
 
+async def _check_rights(message: Message, session: AsyncSession, user, min_level: int) -> bool:
+    """Level + hierarchy check for commands that don't need the target admin object."""
+    if not message.from_user:
+        return False
+    ok, err_msg, *_ = await mod.check_moderation_rights(
+        session,
+        message.bot,
+        _target_chat_id(message),
+        initiator_id=message.from_user.id,
+        initiator_username=message.from_user.username,
+        target_id=user.tg_id,
+        target_username=user.username,
+        min_level=min_level,
+    )
+    if not ok:
+        await message.answer(err_msg or "Недостаточно прав")
+    return ok
+
+
 @router.message(Command("unwarn"))
 async def cmd_unwarn(message: Message, session: AsyncSession) -> None:
     parts = (message.text or "").split()
     user, err = await _resolve_from_message(message, session, parts)
     if err or user is None:
         await message.answer(err or "Пользователь не найден.")
+        return
+    if not await _check_rights(message, session, user, admin_roles_service.MIN_LEVEL_WARN):
         return
 
     count = await mod.remove_one_warning(session, user)
@@ -361,6 +383,7 @@ async def cmd_ban(message: Message, session: AsyncSession) -> None:
         initiator_username=message.from_user.username,
         target_id=user.tg_id,
         target_username=user.username,
+        min_level=admin_roles_service.MIN_LEVEL_BAN,
     )
     if not can_moderate:
         await message.answer(err_msg or "Действие запрещено.")
@@ -402,6 +425,8 @@ async def cmd_unban(message: Message, session: AsyncSession) -> None:
     if err or user is None:
         await message.answer(err or "Пользователь не найден.")
         return
+    if not await _check_rights(message, session, user, admin_roles_service.MIN_LEVEL_BAN):
+        return
 
     chat_id = _target_chat_id(message)
     user.is_banned = False
@@ -418,6 +443,14 @@ async def cmd_unban(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("warns"))
 async def cmd_warns(message: Message, session: AsyncSession) -> None:
+    if not message.from_user:
+        return
+    level = await admin_roles_service.get_user_admin_level(
+        session, message.from_user.id, message.from_user.username
+    )
+    if level < admin_roles_service.MIN_LEVEL_WARN:
+        await message.answer(f"Недостаточно прав: команда доступна с уровня {admin_roles_service.MIN_LEVEL_WARN}.")
+        return
     rows = await mod.list_active_warn_summary(session)
     await message.answer(mod.format_active_warns_text(rows))
 
