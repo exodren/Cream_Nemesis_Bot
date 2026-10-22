@@ -374,7 +374,7 @@ async def check_moderation_rights(
     if target_level in (4, 5):
         return (
             False,
-            "Ошибка: У данного пользователя абсолютный иммунитет.",
+            "Владельцу нельзя применять ограничения",
             None,
             initiator_level,
             target_level,
@@ -384,7 +384,7 @@ async def check_moderation_rights(
     if initiator_level <= target_level:
         return (
             False,
-            "Ошибка: Недостаточно прав для применения санкций к данному пользователю.",
+            "Недостаточно прав",
             None,
             initiator_level,
             target_level,
