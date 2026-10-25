@@ -47,11 +47,7 @@ async def set_bot_commands(bot: Bot) -> None:
     await bot.set_my_commands(USER_COMMANDS, scope=BotCommandScopeAllPrivateChats())
     await bot.set_my_commands(USER_COMMANDS, scope=BotCommandScopeAllGroupChats())
 
-    league_chats = [
-        chat_id
-        for chat_id in (settings.main_chat_id, settings.ri_chat_id, settings.vsa_chat_id)
-        if chat_id
-    ]
+    league_chats = [settings.main_chat_id] if settings.main_chat_id else []
 
     for admin_id in settings.admin_ids:
         try:

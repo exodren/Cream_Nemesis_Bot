@@ -4,6 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import get_settings
 from keyboards.main import back_kb
+from services.admin_roles import ROLE_NAMES
 
 
 LEAGUE_TITLES = {
@@ -21,13 +22,30 @@ def _mention_line(usernames: list[str]) -> str:
     return ", ".join(f"@{name}" for name in usernames)
 
 
-def admins_overview_text() -> str:
+def _staff_mention(a) -> str:
+    return f"@{a.username}" if a.username else f'<a href="tg://user?id={a.user_id}">ID {a.user_id}</a>'
+
+
+def staff_text(staff: list) -> str:
+    """Admins assigned via panel (admin_roles), grouped by level."""
+    lines = []
+    for lvl in range(5, 0, -1):
+        names = [_staff_mention(a) for a in staff if a.admin_level == lvl]
+        if names:
+            lines.append(f"<b>{ROLE_NAMES[lvl]}:</b> {', '.join(names)}")
+    return "\n".join(lines) or "пока не назначены"
+
+
+def admins_overview_text(staff: list) -> str:
     settings = get_settings()
     cn_mentions = _mention_line(settings.league_admins.get("cn", []))
     lines = [
         f"<b>Основатели Cream Nemesis:</b> {cn_mentions}",
         "",
-        "<b>Админы</b>",
+        "<b>Модерация чата</b>",
+        staff_text(staff),
+        "",
+        "<b>Админы лиг</b>",
     ]
     for key, title in LEAGUE_TITLES.items():
         if key == "cn":
@@ -50,6 +68,7 @@ def admins_league_text(league: str) -> str:
 
 def admins_menu_kb() -> InlineKeyboardMarkup:
     return back_kb(
+        [InlineKeyboardButton(text="Модерация чата", callback_data="menu:admins:staff")],
         [InlineKeyboardButton(text="Cream Nemesis", callback_data="menu:admins:cn")],
         [InlineKeyboardButton(text="ЛПЛ", callback_data="menu:admins:lpl")],
         [InlineKeyboardButton(text="РИ", callback_data="menu:admins:ri")],
@@ -65,5 +84,14 @@ def admins_league_kb(league: str) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=f"@{name}", url=f"https://t.me/{name}")]
         for name in names
+    ]
+    return back_kb(*rows, back_to="menu:admins")
+
+
+def staff_kb(staff: list) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=f"{ROLE_NAMES[a.admin_level]} · @{a.username}", url=f"https://t.me/{a.username}")]
+        for a in staff
+        if a.username
     ]
     return back_kb(*rows, back_to="menu:admins")

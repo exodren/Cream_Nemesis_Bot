@@ -53,40 +53,7 @@ TOPIC_ENV_KEYS: dict[str, str] = {
     "lpl_roster": "TOPIC_LPL_ROSTER",
     "coach": "TOPIC_COACH",
     "hall_cn": "TOPIC_HALL_CN",
-    "ri_calendar": "TOPIC_RI_CALENDAR",
-    "ri_rules": "TOPIC_RI_RULES",
-    "ri_regulation": "TOPIC_RI_REGULATION",
-    "ri_participants": "TOPIC_RI_PARTICIPANTS",
-    "ri_guide": "TOPIC_RI_GUIDE",
     "ri_hall": "TOPIC_RI_HALL",
-    "ri_award_zidane": "TOPIC_RI_AWARD_ZIDANE",
-    "ri_award_puskas": "TOPIC_RI_AWARD_PUSKAS",
-    "ri_award_yashin": "TOPIC_RI_AWARD_YASHIN",
-    "ri_award_ballon": "TOPIC_RI_AWARD_BALLON",
-    "ri_award_progress": "TOPIC_RI_AWARD_PROGRESS",
-    "ucl_groups": "TOPIC_UCL_GROUPS",
-    "ucl_playoff": "TOPIC_UCL_PLAYOFF",
-    "uel_groups": "TOPIC_UEL_GROUPS",
-    "uel_playoff": "TOPIC_UEL_PLAYOFF",
-    "uecl_groups": "TOPIC_UECL_GROUPS",
-    "uecl_playoff": "TOPIC_UECL_PLAYOFF",
-    "apl": "TOPIC_APL",
-    "laliga": "TOPIC_LALIGA",
-    "serie_a": "TOPIC_SERIE_A",
-    "bundesliga": "TOPIC_BUNDESLIGA",
-    "cup_apl": "TOPIC_CUP_APL",
-    "cup_laliga": "TOPIC_CUP_LALIGA",
-    "cup_serie_a": "TOPIC_CUP_SERIE_A",
-    "cup_bundesliga": "TOPIC_CUP_BUNDESLIGA",
-    "cup_england": "TOPIC_CUP_ENGLAND",
-    "cup_spain": "TOPIC_CUP_SPAIN",
-    "cup_italy": "TOPIC_CUP_ITALY",
-    "cup_germany": "TOPIC_CUP_GERMANY",
-    "sc_uefa": "TOPIC_SC_UEFA",
-    "sc_spain": "TOPIC_SC_SPAIN",
-    "sc_england": "TOPIC_SC_ENGLAND",
-    "sc_italy": "TOPIC_SC_ITALY",
-    "sc_germany": "TOPIC_SC_GERMANY",
     "vsa_hall": "TOPIC_VSA_HALL",
 }
 
@@ -117,8 +84,6 @@ class Settings:
             "tova": _parse_usernames_display(os.getenv("ADMINS_TOVA")),
         }
         self.main_chat_id = _parse_chat_id(os.getenv("MAIN_CHAT_ID"))
-        self.ri_chat_id = _parse_chat_id(os.getenv("RI_CHAT_ID"), default=self.main_chat_id)
-        self.vsa_chat_id = _parse_chat_id(os.getenv("VSA_CHAT_ID"), default=self.main_chat_id)
         self.topics = _load_topics()
         self.current_season = int(os.getenv("CURRENT_SEASON", "1") or 1)
 

@@ -5,29 +5,26 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from handlers.callback_ui import edit_screen
-from keyboards.admins import admins_league_kb, admins_league_text, admins_menu_kb, admins_overview_text
+from keyboards.admins import (
+    admins_league_kb,
+    admins_league_text,
+    admins_menu_kb,
+    admins_overview_text,
+    staff_kb,
+    staff_text,
+)
+from services import admin_roles as roles_service
 from keyboards.coach import coach_kb
 from keyboards.hall import hall_menu_kb
 from keyboards.lpl import lpl_menu_kb, lpl_rules_kb
 from keyboards.main import main_menu_kb
-from keyboards.ri import (
-    ri_awards_kb,
-    ri_cups_kb,
-    ri_leagues_kb,
-    ri_menu_kb,
-    ri_super_cups_kb,
-    ri_tables_kb,
-    ri_ucl_kb,
-    ri_uecl_kb,
-    ri_uel_kb,
-)
+from keyboards.ri import ri_menu_kb, ri_tables_kb
 from keyboards.tova import tova_menu_kb, tova_reg_kb
 from texts import (
     HALL_MENU,
     LPL_MENU,
     LPL_RULES,
     REGULATION,
-    RI_AWARDS_MENU,
     RI_INTRO,
     RI_TABLES_MENU,
     RULES_CN,
@@ -102,44 +99,9 @@ async def menu_ri(callback: CallbackQuery) -> None:
     await edit_screen(callback, RI_INTRO, ri_menu_kb())
 
 
-@router.callback_query(F.data == "menu:ri:awards")
-async def menu_ri_awards(callback: CallbackQuery) -> None:
-    await edit_screen(callback, RI_AWARDS_MENU, ri_awards_kb())
-
-
 @router.callback_query(F.data == "menu:ri:tables")
 async def menu_ri_tables(callback: CallbackQuery) -> None:
     await edit_screen(callback, RI_TABLES_MENU, ri_tables_kb())
-
-
-@router.callback_query(F.data == "menu:ri:tables:ucl")
-async def menu_ri_ucl(callback: CallbackQuery) -> None:
-    await edit_screen(callback, "ЛЧ — выберите раздел:", ri_ucl_kb())
-
-
-@router.callback_query(F.data == "menu:ri:tables:uel")
-async def menu_ri_uel(callback: CallbackQuery) -> None:
-    await edit_screen(callback, "ЛЕ — выберите раздел:", ri_uel_kb())
-
-
-@router.callback_query(F.data == "menu:ri:tables:uecl")
-async def menu_ri_uecl(callback: CallbackQuery) -> None:
-    await edit_screen(callback, "ЛК — выберите раздел:", ri_uecl_kb())
-
-
-@router.callback_query(F.data == "menu:ri:tables:leagues")
-async def menu_ri_leagues(callback: CallbackQuery) -> None:
-    await edit_screen(callback, "Чемпионаты — выберите раздел:", ri_leagues_kb())
-
-
-@router.callback_query(F.data == "menu:ri:tables:cups")
-async def menu_ri_cups(callback: CallbackQuery) -> None:
-    await edit_screen(callback, "Кубки — выберите раздел:", ri_cups_kb())
-
-
-@router.callback_query(F.data == "menu:ri:tables:sc")
-async def menu_ri_sc(callback: CallbackQuery) -> None:
-    await edit_screen(callback, "Суперкубки — выберите раздел:", ri_super_cups_kb())
 
 
 @router.callback_query(F.data == "menu:vsa")
@@ -155,13 +117,18 @@ async def menu_hall(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "menu:admins")
-async def menu_admins(callback: CallbackQuery) -> None:
-    await edit_screen(callback, admins_overview_text(), admins_menu_kb())
+async def menu_admins(callback: CallbackQuery, session: AsyncSession) -> None:
+    staff = await roles_service.list_admins(session)
+    await edit_screen(callback, admins_overview_text(staff), admins_menu_kb())
 
 
 @router.callback_query(F.data.startswith("menu:admins:"))
-async def menu_admins_league(callback: CallbackQuery) -> None:
+async def menu_admins_league(callback: CallbackQuery, session: AsyncSession) -> None:
     league = (callback.data or "").rsplit(":", 1)[-1]
+    if league == "staff":
+        staff = await roles_service.list_admins(session)
+        await edit_screen(callback, f"<b>Модерация чата</b>\n\n{staff_text(staff)}", staff_kb(staff))
+        return
     await edit_screen(callback, admins_league_text(league), admins_league_kb(league))
 
 
